@@ -1,0 +1,989 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>🌻 精灵农场</title>
+<style>
+  /* ============ 全局 / 田园暖色调 ============ */
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  :root{
+    --cream:#fff6e6;        /* 卡片底色 */
+    --cream-2:#ffefd0;
+    --brown:#b9742f;        /* 边框棕 */
+    --brown-d:#8a5320;
+    --amber:#f6a623;        /* 主按钮 */
+    --amber-d:#e08a0c;
+    --green:#6cbf4b;        /* 种植 / 收获 */
+    --green-d:#509a31;
+    --soil:#c79a6a;         /* 土地 */
+    --text:#5b3a1a;
+  }
+  html,body{ height:100%; }
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei","Segoe UI",sans-serif;
+    color:var(--text);
+    background:
+      radial-gradient(circle at 20% 0%, #ffe7b8 0%, transparent 45%),
+      radial-gradient(circle at 90% 10%, #ffd9a0 0%, transparent 40%),
+      linear-gradient(180deg,#bfe7f5 0%, #d9f0c0 55%, #c7e89a 100%);
+    background-attachment:fixed;
+    min-height:100vh;
+    padding-bottom:96px;
+  }
+
+  /* ============ 顶部栏 ============ */
+  .topbar{
+    position:sticky; top:0; z-index:50;
+    display:flex; align-items:center; gap:10px;
+    padding:12px 14px;
+    background:linear-gradient(180deg,#fff3da,#ffe6b8);
+    border-bottom:4px solid var(--brown);
+    box-shadow:0 4px 10px rgba(0,0,0,.12);
+  }
+  .gold-box{
+    display:flex; align-items:center; gap:6px;
+    background:#fff; border:3px solid var(--brown);
+    border-radius:14px; padding:6px 14px; font-weight:800; font-size:18px;
+    box-shadow:inset 0 -3px 0 #f0dcb0;
+  }
+  .gold-box .coin{ font-size:20px; }
+  .topbar .spacer{ flex:1; }
+
+  /* ============ 通用按钮 ============ */
+  .btn{
+    font-family:inherit; font-weight:800; color:#fff;
+    border:none; border-radius:12px; padding:8px 12px; font-size:14px;
+    background:var(--amber);
+    box-shadow:0 4px 0 var(--amber-d);
+    cursor:pointer; transition:transform .05s ease, box-shadow .05s ease, filter .1s ease;
+    user-select:none; white-space:nowrap;
+  }
+  .btn:active{ transform:translateY(3px); box-shadow:0 1px 0 var(--amber-d); filter:brightness(.97); }
+  .btn:disabled{ background:#cdbfa8; box-shadow:0 4px 0 #b3a487; opacity:.7; cursor:not-allowed; transform:none; }
+  .btn-up   { background:var(--amber); box-shadow:0 4px 0 var(--amber-d); }
+  .btn-pet  { background:#ff8fb1; box-shadow:0 4px 0 #e06088; flex:1; }
+  .btn-pet:active{ box-shadow:0 1px 0 #e06088; }
+  .btn-harvest{ background:var(--green); box-shadow:0 4px 0 var(--green-d); flex:1; }
+  .btn-harvest:active{ box-shadow:0 1px 0 var(--green-d); }
+  .btn-buy  { background:var(--green); box-shadow:0 4px 0 var(--green-d); }
+  .btn-buy:active{ box-shadow:0 1px 0 var(--green-d); }
+  .btn-up2  { background:var(--green); box-shadow:0 4px 0 var(--green-d); }
+  .btn-down { background:#e07a5f; box-shadow:0 4px 0 #c25b40; }
+  .btn-replace{ background:#7c9ce0; box-shadow:0 4px 0 #5b79c0; font-size:12px; padding:7px 9px; }
+
+  /* ============ 主区域 / 精灵卡片 ============ */
+  .title{
+    text-align:center; font-size:22px; font-weight:900; margin:14px 0 4px;
+    color:var(--brown-d); text-shadow:1px 1px 0 #fff;
+  }
+  #cards{
+    display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr));
+    gap:16px; padding:14px; max-width:1100px; margin:0 auto;
+  }
+  .empty-team{
+    grid-column:1/-1; text-align:center; padding:40px 20px;
+    background:var(--cream); border:3px dashed var(--brown);
+    border-radius:18px; font-size:16px; font-weight:700; color:var(--brown-d);
+  }
+  .card{
+    background:linear-gradient(180deg,var(--cream),var(--cream-2));
+    border:4px solid var(--brown); border-radius:20px; padding:14px;
+    box-shadow:0 8px 0 rgba(138,83,32,.25), 0 10px 18px rgba(0,0,0,.12);
+  }
+  .card-head{ display:flex; align-items:center; gap:10px; }
+  .avatar{
+    font-size:36px; width:56px; height:56px; flex:none;
+    display:flex; align-items:center; justify-content:center;
+    background:#fff; border:3px solid var(--brown); border-radius:16px;
+    box-shadow:inset 0 -3px 0 #f0dcb0;
+  }
+  .card-info{ flex:1; min-width:0; }
+  .card-name{ font-size:17px; font-weight:900; }
+  .slot-tag{ font-size:11px; background:#7c9ce0; color:#fff; padding:1px 7px; border-radius:8px; vertical-align:middle; }
+  .card-lv{ font-size:13px; font-weight:700; margin-top:2px; color:var(--brown-d); }
+  .cropname{ color:#a06a2a; }
+  .stat-row{
+    display:flex; gap:8px; margin:10px 0; flex-wrap:wrap;
+    font-size:13px; font-weight:800;
+  }
+  .stat-row span{ background:#fff; border:2px solid #e6cfa0; border-radius:10px; padding:3px 9px; }
+
+  /* ============ 地块网格 ============ */
+  .plots{ display:grid; gap:8px; margin:6px 0 12px; justify-content:center; }
+  .plot{
+    aspect-ratio:1/1; border-radius:10px; border:2px solid var(--brown-d);
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px;
+    cursor:pointer; position:relative; overflow:hidden; text-align:center;
+    transition:transform .05s ease;
+    background:repeating-linear-gradient(45deg,#d9b482 0 10px,#cda774 10px 20px);
+  }
+  .plot:active{ transform:scale(.93); }
+  .plot .plot-icon{ font-size:22px; line-height:1; filter:drop-shadow(0 1px 1px rgba(0,0,0,.2)); }
+  .plot .plot-label{ font-size:9px; font-weight:800; color:var(--brown-d); }
+  .plot .plot-time{ font-size:11px; font-weight:900; color:#3b6e1f; background:rgba(255,255,255,.7); padding:0 5px; border-radius:6px; }
+  .plot.empty{ background:radial-gradient(circle,#e7c794,#cda774); }
+  .plot.empty .plot-icon{ opacity:.85; }
+  .plot.growing{ background:linear-gradient(180deg,#bfe79a,#9fd47a); cursor:default; }
+  .plot.mature{
+    background:linear-gradient(180deg,#ffe9a0,#ffd25e);
+    border-color:#e0941a;
+    animation:pulse 1.1s ease-in-out infinite;
+  }
+  @keyframes pulse{
+    0%,100%{ box-shadow:0 0 0 0 rgba(240,166,35,.7); }
+    50%    { box-shadow:0 0 14px 5px rgba(240,166,35,.85); }
+  }
+  .plot-bar{ width:78%; height:5px; background:rgba(0,0,0,.18); border-radius:4px; overflow:hidden; }
+  .plot-bar-fill{ height:100%; background:linear-gradient(90deg,#7bd34f,#4ea52c); border-radius:5px; transition:width .25s linear; }
+
+  .card-actions{ display:flex; gap:10px; }
+
+  /* ============ 模态框 ============ */
+  .modal{
+    position:fixed; inset:0; z-index:100;
+    background:rgba(60,35,10,.55);
+    display:none; align-items:center; justify-content:center; padding:16px;
+    backdrop-filter:blur(2px);
+  }
+  .modal.show{ display:flex; }
+  .modal-box{
+    width:100%; max-width:460px; max-height:86vh; overflow:auto;
+    background:linear-gradient(180deg,#fff7e8,#ffeccb);
+    border:4px solid var(--brown); border-radius:22px; padding:16px;
+    box-shadow:0 14px 40px rgba(0,0,0,.35);
+    animation:pop .18s ease;
+  }
+  @keyframes pop{ from{ transform:scale(.85); opacity:0; } to{ transform:scale(1); opacity:1; } }
+  .modal-head{ display:flex; align-items:center; margin-bottom:12px; }
+  .modal-head h2{ font-size:20px; color:var(--brown-d); }
+  .modal-head .x{
+    margin-left:auto; width:34px; height:34px; border-radius:10px; border:3px solid var(--brown);
+    background:#fff; font-size:18px; font-weight:900; color:var(--brown-d); cursor:pointer; line-height:1;
+  }
+  .modal-head .x:active{ transform:translateY(2px); }
+
+  .shop-item,.house-item{
+    display:flex; align-items:center; gap:12px;
+    background:var(--cream); border:3px solid #e6cfa0; border-radius:16px;
+    padding:10px 12px; margin-bottom:10px;
+  }
+  .shop-avatar,.house-avatar{
+    font-size:30px; width:50px; height:50px; flex:none;
+    display:flex; align-items:center; justify-content:center;
+    background:#fff; border:3px solid var(--brown); border-radius:14px;
+  }
+  .shop-detail,.house-detail{ flex:1; min-width:0; }
+  .shop-name,.house-name{ font-weight:900; font-size:15px; }
+  .shop-sub,.house-sub{ font-size:12px; color:#8a6a3a; margin-top:3px; font-weight:600; }
+  .owned-tag{ font-size:11px; background:var(--green); color:#fff; padding:1px 7px; border-radius:8px; }
+  .lv-badge{ font-size:11px; background:var(--amber); color:#fff; padding:1px 7px; border-radius:8px; }
+  .house-actions{ flex:none; display:flex; flex-direction:column; gap:6px; align-items:flex-end; }
+  .in-team{ font-size:12px; font-weight:800; color:var(--green-d); }
+  .replace-row{ display:flex; flex-direction:column; gap:5px; }
+
+  /* ============ 奖励地 / 清空地块弹窗 ============ */
+  .bonus-stat{ background:#fff4d6 !important; border-color:#f0c462 !important; color:#b9742f; }
+  .clear-tip{ font-size:13px; font-weight:700; color:#8a5320; margin:8px 0; text-align:center; line-height:1.5; }
+  .clear-line{
+    background:#fff; border:2px solid #e6cfa0; border-radius:10px;
+    padding:7px 11px; margin:6px 0; font-size:13px; font-weight:700;
+  }
+  .clear-btns{ display:flex; gap:10px; margin-top:14px; }
+  .clear-btns .btn{ flex:1; }
+  .clear-plots{ display:grid; gap:8px; margin:10px 0; justify-content:center; }
+  .clear-plot{
+    aspect-ratio:1/1; border-radius:10px; border:2px solid #c25b40;
+    background:linear-gradient(180deg,#ffd7c2,#ffb89c);
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px;
+    cursor:pointer; transition:transform .05s ease;
+  }
+  .clear-plot:active{ transform:scale(.92); }
+  .clear-plot .plot-icon{ font-size:22px; }
+  .clear-plot .plot-label{ font-size:9px; font-weight:800; color:#7a2e16; }
+
+  /* ============ SVG 美术 / 图层 / 特效 ============ */
+  .avatar{ overflow:hidden; }
+  .avatar svg{ width:100%; height:100%; display:block; animation:idleBob 2.8s ease-in-out infinite; }
+  .avatar.happy svg{ animation:petBounce .6s ease; }
+  @keyframes idleBob{ 0%,100%{ transform:translateY(0); } 50%{ transform:translateY(-2.5px); } }
+  @keyframes petBounce{
+    0%{ transform:scale(1,1) translateY(0); }
+    25%{ transform:scale(1.12,.88) translateY(3px); }
+    55%{ transform:scale(.9,1.12) translateY(-6px); }
+    80%{ transform:scale(1.04,.97) translateY(0); }
+    100%{ transform:scale(1,1); }
+  }
+  .shop-avatar,.house-avatar{ overflow:hidden; }
+  .shop-avatar svg,.house-avatar svg{ width:100%; height:100%; display:block; }
+
+  .plot-soil{ position:absolute; inset:0; z-index:0; }
+  .plot-soil svg{ width:100%; height:100%; display:block; }
+  .plot-crop{ position:relative; z-index:1; width:60%; aspect-ratio:1/1; pointer-events:none; }
+  .plot-crop svg{ width:100%; height:100%; display:block; filter:drop-shadow(0 1px 1px rgba(0,0,0,.25)); }
+  .plot.growing .plot-crop{ width:50%; }
+  .mature-crop{ animation:cropBob 1s ease-in-out infinite; }
+  @keyframes cropBob{ 0%,100%{ transform:translateY(0); } 50%{ transform:translateY(-3px); } }
+  .empty-crop{ position:relative; z-index:1; font-size:20px; font-weight:900; color:rgba(110,70,20,.45); line-height:1; }
+  .plot .plot-label,.plot .plot-time,.plot .plot-bar{ position:relative; z-index:2; }
+  .clear-plot{ position:relative; }
+  .clear-plot .plot-crop{ width:62%; }
+
+  #fx-layer{ position:fixed; inset:0; pointer-events:none; z-index:300; overflow:hidden; }
+  .fx-float{
+    position:fixed; transform:translate(-50%,-50%); font-weight:900; font-size:16px;
+    color:#fff; text-shadow:0 2px 5px rgba(0,0,0,.45); white-space:nowrap;
+    animation:fxFloat 1s ease-out forwards;
+  }
+  @keyframes fxFloat{
+    0%{ opacity:0; transform:translate(-50%,-25%) scale(.6); }
+    25%{ opacity:1; }
+    100%{ opacity:0; transform:translate(-50%,-160%) scale(1.1); }
+  }
+  .fx-star{ position:fixed; transform:translate(-50%,-50%); animation:fxStar .8s ease-out forwards; }
+  @keyframes fxStar{
+    0%{ opacity:1; transform:translate(-50%,-50%) scale(.4) rotate(0deg); }
+    100%{ opacity:0; transform:translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(1.05) rotate(170deg); }
+  }
+
+  /* ============ Toast ============ */
+  #toast-container{
+    position:fixed; left:50%; bottom:84px; transform:translateX(-50%);
+    z-index:200; display:flex; flex-direction:column; gap:8px; align-items:center;
+    pointer-events:none; width:90%; max-width:360px;
+  }
+  .toast{
+    background:rgba(60,35,10,.92); color:#fff; font-weight:800; font-size:14px;
+    padding:10px 16px; border-radius:14px; border:2px solid #ffd98a;
+    box-shadow:0 6px 18px rgba(0,0,0,.3);
+    animation:toastIn .25s ease; max-width:100%; text-align:center;
+  }
+  .toast.hide{ animation:toastOut .4s ease forwards; }
+  @keyframes toastIn{ from{ transform:translateY(20px); opacity:0; } to{ transform:translateY(0); opacity:1; } }
+  @keyframes toastOut{ to{ transform:translateY(-12px); opacity:0; } }
+
+  /* ============ 底部提示 ============ */
+  .footer-hint{
+    position:fixed; left:0; right:0; bottom:0; z-index:40;
+    text-align:center; font-size:11px; font-weight:700; color:var(--brown-d);
+    background:rgba(255,243,218,.94); border-top:3px solid var(--brown);
+    padding:6px 10px;
+  }
+</style>
+</head>
+<body>
+
+  <!-- 顶部栏 -->
+  <div class="topbar">
+    <div class="gold-box"><span class="coin">💰</span><span id="gold">0</span></div>
+    <div class="spacer"></div>
+    <button class="btn" data-action="openShop">🛒 商城</button>
+    <button class="btn" data-action="openHouse">🏠 精灵小屋</button>
+  </div>
+
+  <div class="title">🌻 精灵农场 🌻</div>
+
+  <!-- 上阵精灵卡片区 -->
+  <div id="cards"></div>
+
+  <!-- 商城模态框 -->
+  <div class="modal" id="shop-modal">
+    <div class="modal-box">
+      <div class="modal-head">
+        <h2>🛒 精灵商城</h2>
+        <button class="x" data-action="closeModal">✕</button>
+      </div>
+      <div id="shop-list"></div>
+      <p style="font-size:12px;color:#8a6a3a;font-weight:700;text-align:center;margin-top:6px;">
+        购买后精灵会存入「精灵小屋」，记得手动上阵哦～
+      </p>
+    </div>
+  </div>
+
+  <!-- 精灵小屋模态框 -->
+  <div class="modal" id="house-modal">
+    <div class="modal-box">
+      <div class="modal-head">
+        <h2>🏠 精灵小屋</h2>
+        <button class="x" data-action="closeModal">✕</button>
+      </div>
+      <div id="house-list"></div>
+      <p style="font-size:12px;color:#8a6a3a;font-weight:700;text-align:center;margin-top:6px;">
+        最多同时上阵 3 只精灵 · 换下的精灵作物会被冻结保留
+      </p>
+    </div>
+  </div>
+
+  <!-- 清空地块确认/选择模态框（不可点击遮罩关闭） -->
+  <div class="modal" id="clear-modal"><div class="modal-box" id="clear-box"></div></div>
+
+  <div id="fx-layer"></div>
+  <div id="toast-container"></div>
+
+  <div class="footer-hint">
+    点击空地种植 · 成熟后点击收获 · 「抚摸」获取种子 · 升级解锁更多地块 🌱
+  </div>
+
+<script>
+/* =========================================================
+ * 数据定义
+ * =======================================================*/
+const TYPES = {
+  wheat:   { name:'小麦精灵', icon:'🐥', crop:'小麦', cropIcon:'🌾', seed:'小麦种子', growSec:6,  unlock:150, sell:18 },
+  corn:    { name:'玉米精灵', icon:'🐰', crop:'玉米', cropIcon:'🌽', seed:'玉米种子', growSec:12, unlock:280, sell:32 },
+  tomato:  { name:'番茄精灵', icon:'🦊', crop:'番茄', cropIcon:'🍅', seed:'番茄种子', growSec:20, unlock:500, sell:58 },
+  pumpkin: { name:'南瓜精灵', icon:'🐲', crop:'南瓜', cropIcon:'🎃', seed:'南瓜种子', growSec:35, unlock:880, sell:98 },
+};
+const ORDER = ['wheat','corn','tomato','pumpkin'];
+const UPGRADE_COSTS = [100, 250, 500, 800, 1200]; // Lv1→2, 2→3, 3→4, 4→5, 5→6
+const MAX_LEVEL = 6;
+const MAX_TEAM  = 3;
+
+/* =========================================================
+ * 游戏状态（纯 JS 对象，不使用 localStorage）
+ * =======================================================*/
+const game = {
+  gold: 320,
+  team: ['wheat'],            // 当前上阵精灵 id（最多 3 个）
+  sprites: {
+    wheat: { id:'wheat', level:1, seeds:5, unlocked:true, plots:[ {state:'empty'} ] },
+  },
+};
+
+/* 创建一只新精灵（解锁时调用）：Lv.1 / 1 块空地 / 0 种子 */
+function createSprite(id){
+  return { id, level:1, seeds:0, unlocked:true, plots:[ {state:'empty'} ] };
+}
+
+/* =========================================================
+ * 计算辅助
+ * =======================================================*/
+// 实际生长时间（毫秒）：每级 -5%，最多 -30%
+function effGrowMs(sp){
+  const reduction = Math.min(0.30, (sp.level - 1) * 0.05);
+  return Math.round(TYPES[sp.id].growSec * 1000 * (1 - reduction));
+}
+// 收获金币：基础售价 ×(1 + (等级-1)×0.05)
+function harvestGold(sp){
+  return Math.round(TYPES[sp.id].sell * (1 + (sp.level - 1) * 0.05));
+}
+// 地块网格列数：≤4 块 2 列，5~6 块 3 列，>6 块 4 列（含奖励地时）
+function plotCols(n){ return n <= 4 ? 2 : (n <= 6 ? 3 : 4); }
+
+/* =========================================================
+ * 美术资源：内置 SVG（精灵 / 作物 / 土地），单文件、无外部依赖
+ *  - 想换成自己的图片：把 spriteSVG / cropSVG / soilSVG 的返回值
+ *    改成 <img src="..."> 即可（多帧动画见 spriteSVG 的 pose 参数）。
+ * =======================================================*/
+const ART = {
+  wheat:   { body:'#ead27e', body2:'#c9a341', dark:'#6e571c', cheek:'#ffb7a6' },
+  corn:    { body:'#ffd94a', body2:'#efb100', dark:'#7a5a10', cheek:'#ffb7a6' },
+  tomato:  { body:'#ff8270', body2:'#df3a29', dark:'#7a1e14', cheek:'#ffd2c6' },
+  pumpkin: { body:'#ffac4d', body2:'#e87a12', dark:'#7a3c0c', cheek:'#ffd2a6' },
+};
+
+// 精灵头像（pose: 'idle' | 'happy' —— 抚摸时切到 happy，即「多帧」效果）
+function spriteSVG(id, pose){
+  const a = ART[id], happy = pose === 'happy';
+  const eyes = happy
+    ? `<path d="M19 30 q5 -6 10 0" fill="none" stroke="${a.dark}" stroke-width="2.4" stroke-linecap="round"/>
+       <path d="M35 30 q5 -6 10 0" fill="none" stroke="${a.dark}" stroke-width="2.4" stroke-linecap="round"/>`
+    : `<ellipse cx="24" cy="30" rx="3.4" ry="4.4" fill="#3a2a14"/><circle cx="25.3" cy="28.4" r="1.2" fill="#fff"/>
+       <ellipse cx="40" cy="30" rx="3.4" ry="4.4" fill="#3a2a14"/><circle cx="41.3" cy="28.4" r="1.2" fill="#fff"/>`;
+  const mouth = happy
+    ? `<path d="M27 37 q5 7 10 0 q-5 2 -10 0Z" fill="#b5453a" stroke="${a.dark}" stroke-width="1.1"/>`
+    : `<path d="M28 37 q4 4 8 0" fill="none" stroke="${a.dark}" stroke-width="1.8" stroke-linecap="round"/>`;
+  const armY = happy ? 30 : 39;
+  return `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+    <defs><radialGradient id="bg-${id}" cx="40%" cy="32%" r="78%">
+      <stop offset="0" stop-color="${a.body}"/><stop offset="1" stop-color="${a.body2}"/></radialGradient></defs>
+    <path d="M31 16 C29 6 22 7 25 14 C19 11 21 18 31 18 Z" fill="#7ec64b"/>
+    <path d="M33 16 C35 6 42 7 39 14 C45 11 43 18 33 18 Z" fill="#5fb036"/>
+    <ellipse cx="9"  cy="${armY}" rx="5" ry="6.5" fill="${a.body2}"/>
+    <ellipse cx="55" cy="${armY}" rx="5" ry="6.5" fill="${a.body2}"/>
+    <ellipse cx="32" cy="37" rx="22" ry="21" fill="url(#bg-${id})" stroke="${a.dark}" stroke-width="1.6"/>
+    <ellipse cx="32" cy="41" rx="13" ry="12" fill="#ffffff" opacity=".30"/>
+    ${eyes}
+    <ellipse cx="17" cy="35" rx="3" ry="2" fill="${a.cheek}" opacity=".85"/>
+    <ellipse cx="47" cy="35" rx="3" ry="2" fill="${a.cheek}" opacity=".85"/>
+    ${mouth}
+    ${heldCrop(id)}
+  </svg>`;
+}
+
+// 精灵腹前小作物徽记（用于区分种类）
+function heldCrop(id){
+  if(id === 'wheat')  return `<g stroke="#caa23a" stroke-width="2" stroke-linecap="round"><line x1="32" y1="52" x2="32" y2="45"/><line x1="32" y1="47" x2="28.5" y2="44"/><line x1="32" y1="47" x2="35.5" y2="44"/><line x1="32" y1="50" x2="28.5" y2="47"/><line x1="32" y1="50" x2="35.5" y2="47"/></g>`;
+  if(id === 'corn')   return `<g><ellipse cx="32" cy="48" rx="3.6" ry="5.4" fill="#ffd23b" stroke="#d9a200" stroke-width="1"/><path d="M28.4 47 q-3.5 0 -3.5 4.6 q3.5 0 3.5 -4.6Z" fill="#6fbf3a"/></g>`;
+  if(id === 'tomato') return `<g><circle cx="32" cy="49" r="4.6" fill="#e8412c"/><path d="M30 45 l2 2 2 -2" stroke="#4f9a2c" stroke-width="1.8" fill="none"/></g>`;
+  return `<g><ellipse cx="32" cy="49" rx="5.4" ry="4.6" fill="#ef8716"/><line x1="32" y1="44.5" x2="32" y2="53.5" stroke="#c96a0c" stroke-width="1"/><line x1="28.5" y1="45.5" x2="28.5" y2="52.5" stroke="#c96a0c" stroke-width="1"/><line x1="35.5" y1="45.5" x2="35.5" y2="52.5" stroke="#c96a0c" stroke-width="1"/><rect x="31" y="42.5" width="2" height="3" rx="0.6" fill="#4f9a2c"/></g>`;
+}
+
+// 作物（stage: 'sprout' | 'growing' | 'mature'）
+function cropSVG(id, stage){
+  const a = ART[id];
+  if(stage === 'sprout') return `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+    <line x1="32" y1="54" x2="32" y2="42" stroke="#4f9a2c" stroke-width="3" stroke-linecap="round"/>
+    <path d="M32 46 q-10 -2 -12 -10 q10 0 12 10Z" fill="#7ec64b"/>
+    <path d="M32 48 q10 -2 12 -10 q-10 0 -12 10Z" fill="#5fb036"/></svg>`;
+  if(stage === 'growing') return `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+    <line x1="32" y1="56" x2="32" y2="28" stroke="#4f9a2c" stroke-width="3" stroke-linecap="round"/>
+    <path d="M32 42 q-12 -2 -15 -11 q12 0 15 11Z" fill="#7ec64b"/>
+    <path d="M32 46 q12 -2 15 -11 q-12 0 -15 11Z" fill="#5fb036"/>
+    <circle cx="32" cy="26" r="6" fill="${a.body2}" stroke="${a.dark}" stroke-width="1.2"/></svg>`;
+  if(id === 'wheat') return `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+    <line x1="32" y1="58" x2="32" y2="20" stroke="#caa23a" stroke-width="3" stroke-linecap="round"/>
+    <g fill="#ecc24c" stroke="#caa23a" stroke-width="0.8">
+      <ellipse cx="32" cy="20" rx="3.4" ry="5.2"/>
+      <ellipse cx="26" cy="25" rx="2.8" ry="4.6" transform="rotate(-28 26 25)"/><ellipse cx="38" cy="25" rx="2.8" ry="4.6" transform="rotate(28 38 25)"/>
+      <ellipse cx="26" cy="32" rx="2.8" ry="4.6" transform="rotate(-28 26 32)"/><ellipse cx="38" cy="32" rx="2.8" ry="4.6" transform="rotate(28 38 32)"/>
+      <ellipse cx="26" cy="39" rx="2.8" ry="4.6" transform="rotate(-28 26 39)"/><ellipse cx="38" cy="39" rx="2.8" ry="4.6" transform="rotate(28 38 39)"/></g></svg>`;
+  if(id === 'corn') return `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+    <path d="M22 52 q-7 -22 9 -36 q4 19 -2 36Z" fill="#6fbf3a"/>
+    <path d="M42 52 q7 -22 -9 -36 q-4 19 2 36Z" fill="#57a52d"/>
+    <ellipse cx="32" cy="35" rx="9" ry="18" fill="#ffd23b" stroke="#e0a800" stroke-width="1.2"/>
+    <g fill="#e3ad00" opacity=".7"><circle cx="29" cy="26" r="1.4"/><circle cx="35" cy="26" r="1.4"/><circle cx="29" cy="32" r="1.4"/><circle cx="35" cy="32" r="1.4"/><circle cx="32" cy="29" r="1.4"/><circle cx="32" cy="35" r="1.4"/><circle cx="29" cy="38" r="1.4"/><circle cx="35" cy="38" r="1.4"/><circle cx="32" cy="41" r="1.4"/></g></svg>`;
+  if(id === 'tomato') return `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+    <line x1="32" y1="56" x2="32" y2="30" stroke="#4f9a2c" stroke-width="2.6"/>
+    <path d="M32 32 q-11 -3 -14 -12 q11 0 14 12Z" fill="#5fb036"/>
+    <path d="M32 30 q11 -3 14 -12 q-11 0 -14 12Z" fill="#7ec64b"/>
+    <circle cx="25" cy="45" r="8" fill="#e8412c"/><circle cx="22" cy="42" r="2" fill="#fff" opacity=".4"/>
+    <circle cx="40" cy="47" r="9" fill="#d6351f"/><circle cx="37" cy="43" r="2.2" fill="#fff" opacity=".4"/>
+    <path d="M38 39 l2 2 2 -2" stroke="#4f9a2c" stroke-width="1.8" fill="none"/></svg>`;
+  return `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+    <rect x="30" y="20" width="4" height="9" rx="1.5" fill="#5a8a2c"/>
+    <ellipse cx="32" cy="43" rx="21" ry="16" fill="#ef8716" stroke="#c96a0c" stroke-width="1.6"/>
+    <ellipse cx="32" cy="43" rx="13" ry="16" fill="#f59a2e"/>
+    <ellipse cx="19" cy="43" rx="6" ry="15" fill="#e07d12"/><ellipse cx="45" cy="43" rx="6" ry="15" fill="#e07d12"/>
+    <path d="M22 31 q10 -6 20 0" stroke="#c96a0c" stroke-width="1.4" fill="none" opacity=".5"/></svg>`;
+}
+
+// 土地贴图（moist: 已种植/成熟时更湿润、更深）
+function soilSVG(moist){
+  const base = moist ? '#b07a44' : '#cda878', row = moist ? '#8c5d30' : '#b08a52';
+  return `<svg viewBox="0 0 64 64" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+    <rect width="64" height="64" fill="${base}"/>
+    <g stroke="${row}" stroke-width="3.5" opacity=".7"><line x1="-2" y1="18" x2="66" y2="18"/><line x1="-2" y1="34" x2="66" y2="34"/><line x1="-2" y1="50" x2="66" y2="50"/></g>
+    <g fill="#5c3d1e" opacity=".18"><circle cx="14" cy="10" r="1.6"/><circle cx="48" cy="25" r="1.6"/><circle cx="22" cy="42" r="1.6"/><circle cx="52" cy="55" r="1.6"/><circle cx="38" cy="12" r="1.4"/></g></svg>`;
+}
+
+/* ---- 点击 / 收获 小特效（浮动文字 + 粒子）---- */
+function fxFloat(x, y, text, color){
+  const layer = document.getElementById('fx-layer'); if(!layer) return;
+  const f = document.createElement('div');
+  f.className = 'fx-float'; f.textContent = text;
+  if(color) f.style.color = color;
+  f.style.left = x + 'px'; f.style.top = y + 'px';
+  layer.appendChild(f); setTimeout(()=>f.remove(), 1000);
+}
+function fxBurst(x, y, n, glyphs){
+  const layer = document.getElementById('fx-layer'); if(!layer) return;
+  for(let k = 0; k < n; k++){
+    const s = document.createElement('div');
+    s.className = 'fx-star'; s.textContent = glyphs[k % glyphs.length];
+    const ang = (Math.PI * 2 * k) / n + Math.random() * 1.2;
+    const dist = 24 + Math.random() * 20;
+    s.style.setProperty('--dx', (Math.cos(ang) * dist) + 'px');
+    s.style.setProperty('--dy', (Math.sin(ang) * dist - 12) + 'px');
+    s.style.left = x + 'px'; s.style.top = y + 'px';
+    s.style.fontSize = (12 + Math.random() * 7) + 'px';
+    layer.appendChild(s); setTimeout(()=>s.remove(), 800);
+  }
+}
+function centerOf(sel){
+  const el = document.querySelector(sel); if(!el) return null;
+  const r = el.getBoundingClientRect();
+  return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+}
+// 抚摸：精灵切到「开心」帧并弹跳，720ms 后复位（多帧动画）
+function petAnim(id){
+  const av = document.querySelector('[data-avatar="' + id + '"]'); if(!av) return;
+  av.innerHTML = spriteSVG(id, 'happy');
+  av.classList.remove('happy'); void av.offsetWidth; av.classList.add('happy');
+  setTimeout(()=>{
+    const a2 = document.querySelector('[data-avatar="' + id + '"]');
+    if(a2){ a2.classList.remove('happy'); a2.innerHTML = spriteSVG(id, 'idle'); }
+  }, 720);
+}
+
+/* =========================================================
+ * 核心玩法操作
+ * =======================================================*/
+// 种植
+function plant(sp, i){
+  if(!sp) return;
+  const p = sp.plots[i];
+  if(!p || p.state !== 'empty') return;
+  if(sp.seeds <= 0){ toast('🌱 种子不足，先「抚摸」精灵获取种子吧～'); return; }
+  const c = centerOf('[data-sprite="' + sp.id + '"][data-plot="' + i + '"]');
+  sp.seeds--;
+  const dur = effGrowMs(sp);
+  p.state = 'growing';
+  p.duration = dur;
+  p.endTime = Date.now() + dur;
+  p.remaining = dur;
+  p.frozen = false;
+  toast('🌱 种下了' + TYPES[sp.id].crop + '，' + Math.ceil(dur / 1000) + 's 后成熟');
+  renderAll();
+  if(c) fxBurst(c.x, c.y, 5, ['🌱','✨']);
+}
+
+// 收获单块
+function harvestPlot(sp, i){
+  if(!sp) return;
+  const p = sp.plots[i];
+  if(!p || p.state !== 'mature') return;
+  const c = centerOf('[data-sprite="' + sp.id + '"][data-plot="' + i + '"]');
+  const g = harvestGold(sp);
+  game.gold += g;
+  p.state = 'empty';
+  toast('🧺 收获' + TYPES[sp.id].crop + ' +' + g + '💰');
+  renderAll();
+  if(c){ fxFloat(c.x, c.y, '+' + g + '💰', '#fff3c4'); fxBurst(c.x, c.y, 6, ['✨','⭐','🌟']); }
+}
+
+// 一键收获当前精灵所有成熟作物
+function harvestAll(sp){
+  if(!sp) return;
+  let count = 0, gold = 0;
+  sp.plots.forEach(p=>{
+    if(p.state === 'mature'){ count++; gold += harvestGold(sp); p.state = 'empty'; }
+  });
+  if(count === 0){ toast('暂时没有可收获的作物哦'); return; }
+  const c = centerOf('[data-action="harvestAll"][data-sprite="' + sp.id + '"]') || centerOf('[data-avatar="' + sp.id + '"]');
+  game.gold += gold;
+  toast('🧺 一键收获 ' + count + ' 个' + TYPES[sp.id].crop + '，+' + gold + '💰');
+  renderAll();
+  if(c){ fxFloat(c.x, c.y, '+' + gold + '💰', '#fff3c4'); fxBurst(c.x, c.y, Math.min(14, count * 2 + 4), ['✨','⭐','🌟','🌾']); }
+}
+
+// 抚摸获取种子：随机 1~3，Lv≥2 再 +1，Lv≥4 再 +1，最多 6
+function pet(sp){
+  if(!sp) return;
+  let n = 1 + Math.floor(Math.random() * 3);
+  if(sp.level >= 2) n += 1;
+  if(sp.level >= 4) n += 1;
+  n = Math.min(6, n);
+  sp.seeds += n;
+  toast('🤚 抚摸了' + TYPES[sp.id].name + '，获得 ' + n + ' 个' + TYPES[sp.id].seed);
+  renderAll();
+  petAnim(sp.id);
+  const c = centerOf('[data-avatar="' + sp.id + '"]');
+  if(c){ fxFloat(c.x, c.y, '+' + n + '🌱', '#d8f5a8'); fxBurst(c.x, c.y, n + 2, ['💛','✨','🌱']); }
+}
+
+// 升级：消耗递增金币，立即 +1 块空地
+function upgrade(sp){
+  if(!sp) return;
+  if(sp.level >= MAX_LEVEL){ toast('已经是满级 Lv.6 啦！'); return; }
+  const cost = UPGRADE_COSTS[sp.level - 1];
+  if(game.gold < cost){ toast('金币不足，升级需要 ' + cost + '💰'); return; }
+  game.gold -= cost;
+  sp.level++;
+  sp.plots.push({ state:'empty' });   // 新地块为空闲
+  toast('⬆️ ' + TYPES[sp.id].name + ' 升到 Lv.' + sp.level + '，解锁新地块！');
+  renderAll();
+}
+
+/* =========================================================
+ * 商城：解锁新精灵（存入小屋，需手动上阵）
+ * =======================================================*/
+function unlock(id){
+  const t = TYPES[id];
+  if(game.sprites[id] && game.sprites[id].unlocked) return;
+  if(game.gold < t.unlock){ toast('金币不足，解锁需要 ' + t.unlock + '💰'); return; }
+  game.gold -= t.unlock;
+  game.sprites[id] = createSprite(id);
+  toast('🎉 解锁了' + t.name + '！已存入精灵小屋');
+  renderAll();
+}
+
+/* =========================================================
+ * 队伍 / 精灵小屋：换场 + 奖励地块
+ *  规则：开局 / 单只在场 → 无奖励（严格按等级数地块，开局 1 块）；
+ *        队伍 2 只在场 → 每只额外 +1 块「奖励地」；
+ *        队伍满 3 只 → 奖励地收回（即上场到第 3 只时触发）。
+ *        收回奖励地时优先回收空闲地；若某精灵已无空闲地，
+ *        则弹窗让玩家选择清空哪一块作物（可取消上场）。
+ *        换下 / 减员只回收空地、绝不毁作物，也不弹窗。
+ *  换场：被换下的精灵作物冻结保留；在场精灵解冻续算（由 syncTimers 处理）。
+ * =======================================================*/
+function spriteOnField(id){ return game.team.includes(id); }
+
+// 在场每只精灵的奖励地块数：恰好 2 只在场时 +1，其余（1 只 / 满 3 只）为 0
+function fieldBonus(){ return game.team.length === 2 ? 1 : 0; }
+
+// 计时器同步：在场精灵解冻续算，替补席精灵冻结保留（幂等，可重复调用）
+function syncTimers(){
+  for(const id in game.sprites){
+    const sp = game.sprites[id];
+    const onField = spriteOnField(id);
+    sp.plots.forEach(p=>{
+      if(p.state !== 'growing') return;
+      if(onField && p.frozen){            // 上场 → 解冻
+        p.endTime = Date.now() + (p.remaining || 0);
+        p.frozen = false;
+      }else if(!onField && !p.frozen){    // 下场 → 冻结
+        p.remaining = Math.max(0, p.endTime - Date.now());
+        p.frozen = true;
+      }
+    });
+  }
+}
+
+// 把精灵地块数调整到 target：不足则补空地；超出时先回收空地，
+// 返回仍需删除的「有作物地块」数量（>0 表示需要玩家手动清理）
+function reconcilePlots(sp, target){
+  while(sp.plots.length < target) sp.plots.push({ state:'empty' });
+  for(let i = sp.plots.length - 1; i >= 0 && sp.plots.length > target; i--){
+    if(sp.plots[i].state === 'empty') sp.plots.splice(i, 1);
+  }
+  return Math.max(0, sp.plots.length - target);
+}
+
+// 替补席精灵：仅回收多余空地（绝不毁坏作物），目标 = max(等级, 已占用)
+function trimBench(sp){
+  const occupied = sp.plots.filter(p => p.state !== 'empty').length;
+  reconcilePlots(sp, Math.max(sp.level, occupied));
+}
+
+// 结算一次队伍变化：同步计时 → 整理替补 → 调整在场地块 → 必要时触发清理
+function settleTeam(snapshot, opts){
+  const allowPrompt = !!(opts && opts.prompt);
+  syncTimers();
+  for(const id in game.sprites){
+    if(!spriteOnField(id)) trimBench(game.sprites[id]);
+  }
+  const bonus = fieldBonus();
+  const needClear = [];
+  game.team.forEach(id=>{
+    const sp = game.sprites[id];
+    const target = sp.level + bonus;
+    const over = reconcilePlots(sp, target);
+    // 仅「上场 / 替换」导致地块需收回且已无空地时才提示；
+    // 「换下 / 减员」保留多余作物、不弹窗（crop-safe）。
+    if(over > 0 && allowPrompt) needClear.push({ id, target });
+  });
+  renderAll();
+  if(needClear.length) openClearFlow(needClear, snapshot);
+}
+
+function addToTeam(id){
+  if(spriteOnField(id)) return;
+  if(game.team.length >= MAX_TEAM){ toast('队伍已满（最多 3 只）'); return; }
+  const snapshot = [...game.team];
+  game.team.push(id);
+  toast('✅ ' + TYPES[id].name + ' 上阵啦！');
+  settleTeam(snapshot, { prompt: true });
+}
+
+function removeFromTeam(id){
+  if(!spriteOnField(id)) return;
+  game.team = game.team.filter(x => x !== id);
+  toast('💤 ' + TYPES[id].name + ' 已换下休息（作物冻结保留）');
+  settleTeam([...game.team], { prompt: false });   // 换下只回收空地、不毁作物、不弹窗
+}
+
+function replaceSlot(id, slot){
+  const outId = game.team[slot];
+  if(outId === id) return;
+  const snapshot = [...game.team];
+  game.team[slot] = id;
+  toast('🔄 ' + TYPES[id].name + ' 替换上场' + (outId ? '，' + TYPES[outId].name + ' 冻结保留' : ''));
+  settleTeam(snapshot, { prompt: true });
+}
+
+/* ---- 「清空地块」交互：队伍变满、奖励地需收回但已无空闲地 ---- */
+let clearFlow = null;   // { queue:[{id,target}], step:'confirm'|'pick', snapshot }
+
+function openClearFlow(needClear, snapshot){
+  clearFlow = { queue: needClear, step: 'confirm', snapshot };
+  renderClearModal();
+  document.getElementById('clear-modal').classList.add('show');
+}
+function closeClearFlow(){
+  clearFlow = null;
+  document.getElementById('clear-modal').classList.remove('show');
+}
+
+// 取消上场：回滚到变化前的队伍并重新结算（只补回空地，不会再要求清理）
+function cancelClearFlow(){
+  game.team = [...clearFlow.snapshot];
+  closeClearFlow();
+  syncTimers();
+  for(const id in game.sprites){ if(!spriteOnField(id)) trimBench(game.sprites[id]); }
+  const bonus = fieldBonus();
+  game.team.forEach(id=>{ reconcilePlots(game.sprites[id], game.sprites[id].level + bonus); });
+  toast('已取消上场');
+  renderAll();
+}
+
+function renderClearModal(){
+  const box = document.getElementById('clear-box');
+  if(clearFlow.step === 'confirm'){
+    const lines = clearFlow.queue.map(q=>{
+      const sp = game.sprites[q.id];
+      const over = sp.plots.length - q.target;
+      return `<div class="clear-line">${TYPES[q.id].icon} ${TYPES[q.id].name}：需清理 <b>${over}</b> 块</div>`;
+    }).join('');
+    box.innerHTML = `
+      <div class="modal-head"><h2>⚠️ 已无空闲地块</h2></div>
+      <p class="clear-tip">队伍已满 3 只，奖励地块需要收回，但以下精灵已无空闲地块可回收：</p>
+      ${lines}
+      <p class="clear-tip">是否清空多余作物以完成上场？</p>
+      <div class="clear-btns">
+        <button class="btn btn-down" data-action="clearCancel">取消上场</button>
+        <button class="btn btn-buy" data-action="clearConfirm">确定，去选择</button>
+      </div>`;
+    return;
+  }
+  // pick：处理队首精灵
+  const q  = clearFlow.queue[0];
+  const sp = game.sprites[q.id];
+  const need = sp.plots.length - q.target;
+  const cols = plotCols(sp.plots.length);
+  box.innerHTML = `
+    <div class="modal-head"><h2>🗑️ 选择要清空的地块</h2></div>
+    <p class="clear-tip">${TYPES[q.id].icon} ${TYPES[q.id].name}：还需移除 <b>${need}</b> 块（点击作物即清除该地块）</p>
+    <div class="clear-plots" style="grid-template-columns:repeat(${cols},minmax(0,62px))">
+      ${sp.plots.map((p, i)=>{
+        const art = cropSVG(q.id, p.state === 'mature' ? 'mature' : 'growing');
+        const tag = p.state === 'mature' ? '成熟' : '生长中';
+        return `<div class="clear-plot" data-action="clearPick" data-sprite="${q.id}" data-plot="${i}">
+            <div class="plot-crop">${art}</div><div class="plot-label">${tag}</div></div>`;
+      }).join('')}
+    </div>`;
+}
+
+function clearConfirm(){ clearFlow.step = 'pick'; renderClearModal(); }
+
+function clearPick(id, i){
+  if(!clearFlow || clearFlow.step !== 'pick') return;
+  const q = clearFlow.queue[0];
+  if(!q || q.id !== id) return;
+  const sp = game.sprites[id];
+  if(i < 0 || i >= sp.plots.length) return;
+  sp.plots.splice(i, 1);                 // 移除该地块（连同其上作物）
+  if(sp.plots.length <= q.target) clearFlow.queue.shift();
+  renderAll();                           // 刷新背后的精灵卡片
+  if(clearFlow.queue.length === 0){      // 全部处理完毕
+    closeClearFlow();
+    toast('🗑️ 已清理多余地块，上场完成');
+    return;
+  }
+  renderClearModal();
+}
+
+/* =========================================================
+ * 渲染
+ * =======================================================*/
+function renderAll(){
+  document.getElementById('gold').textContent = game.gold;
+  renderCards();
+  if(shopOpen)  renderShop();
+  if(houseOpen) renderHouse();
+}
+
+function plotHtml(sp, p, i){
+  if(p.state === 'empty'){
+    return `<div class="plot empty" data-action="plant" data-sprite="${sp.id}" data-plot="${i}">
+        <div class="plot-soil">${soilSVG(false)}</div>
+        <div class="empty-crop">＋</div><div class="plot-label">种植</div></div>`;
+  }
+  if(p.state === 'growing'){
+    const remain = Math.max(0, p.endTime - Date.now());
+    const pct = Math.min(100, Math.round((1 - remain / p.duration) * 100));
+    const stage = pct < 45 ? 'sprout' : 'growing';
+    return `<div class="plot growing" data-sprite="${sp.id}" data-plot="${i}" data-end="${p.endTime}" data-dur="${p.duration}">
+        <div class="plot-soil">${soilSVG(true)}</div>
+        <div class="plot-crop">${cropSVG(sp.id, stage)}</div>
+        <div class="plot-time">${Math.ceil(remain / 1000)}s</div>
+        <div class="plot-bar"><div class="plot-bar-fill" style="width:${pct}%"></div></div></div>`;
+  }
+  // mature
+  return `<div class="plot mature" data-action="harvest" data-sprite="${sp.id}" data-plot="${i}">
+      <div class="plot-soil">${soilSVG(true)}</div>
+      <div class="plot-crop mature-crop">${cropSVG(sp.id, 'mature')}</div>
+      <div class="plot-label">收获</div></div>`;
+}
+
+function renderCards(){
+  const wrap = document.getElementById('cards');
+  if(game.team.length === 0){
+    wrap.innerHTML = '<div class="empty-team">🌾 队伍空空如也～<br>打开「精灵小屋」上阵一只精灵吧！</div>';
+    return;
+  }
+  wrap.innerHTML = game.team.map((id, slot)=>{
+    const sp = game.sprites[id];
+    const t  = TYPES[id];
+    const matureCount = sp.plots.filter(p => p.state === 'mature').length;
+    const cols = plotCols(sp.plots.length);
+    const atMax = sp.level >= MAX_LEVEL;
+    const upCost = atMax ? null : UPGRADE_COSTS[sp.level - 1];
+    return `
+      <div class="card">
+        <div class="card-head">
+          <div class="avatar" data-avatar="${id}">${spriteSVG(id, 'idle')}</div>
+          <div class="card-info">
+            <div class="card-name">${t.name} <span class="slot-tag">第${slot + 1}位</span></div>
+            <div class="card-lv">Lv.${sp.level} · <span class="cropname">${t.cropIcon}${t.crop} 售${harvestGold(sp)}💰</span></div>
+          </div>
+          <button class="btn btn-up" data-action="upgrade" data-sprite="${id}" ${atMax ? 'disabled' : ''}>
+            ${atMax ? '已满级' : '升级 ' + upCost + '💰'}
+          </button>
+        </div>
+        <div class="stat-row">
+          <span>🌱 种子 ${sp.seeds}</span>
+          <span>🟫 地块 ${sp.plots.length}</span>
+          ${fieldBonus() > 0 ? `<span class="bonus-stat">🎁 奖励地 +${fieldBonus()}</span>` : ''}
+          <span>✨ 成熟 ${matureCount}</span>
+        </div>
+        <div class="plots" style="grid-template-columns:repeat(${cols},minmax(0,62px))">
+          ${sp.plots.map((p, i) => plotHtml(sp, p, i)).join('')}
+        </div>
+        <div class="card-actions">
+          <button class="btn btn-pet" data-action="pet" data-sprite="${id}">🤚 抚摸</button>
+          <button class="btn btn-harvest" data-action="harvestAll" data-sprite="${id}" ${matureCount === 0 ? 'disabled' : ''}>
+            🧺 一键收获${matureCount > 0 ? '(' + matureCount + ')' : ''}
+          </button>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function renderShop(){
+  document.getElementById('shop-list').innerHTML = ORDER.map(id=>{
+    const t = TYPES[id];
+    const owned = game.sprites[id] && game.sprites[id].unlocked;
+    let btn;
+    if(owned){
+      btn = '<button class="btn" disabled>已拥有</button>';
+    }else{
+      const can = game.gold >= t.unlock;
+      btn = `<button class="btn btn-buy" data-action="unlock" data-sprite="${id}" ${can ? '' : 'disabled'}>解锁 ${t.unlock}💰</button>`;
+    }
+    return `<div class="shop-item">
+        <div class="shop-avatar">${spriteSVG(id, 'idle')}</div>
+        <div class="shop-detail">
+          <div class="shop-name">${t.name} ${owned ? '<span class="owned-tag">已拥有</span>' : ''}</div>
+          <div class="shop-sub">专属：${t.cropIcon}${t.crop} · 售${t.sell}💰 · 生长${t.growSec}s</div>
+        </div>
+        ${btn}
+      </div>`;
+  }).join('');
+}
+
+function renderHouse(){
+  const unlocked = ORDER.filter(id => game.sprites[id] && game.sprites[id].unlocked);
+  document.getElementById('house-list').innerHTML = unlocked.map(id=>{
+    const t  = TYPES[id];
+    const sp = game.sprites[id];
+    const onTeam = game.team.includes(id);
+    let actions;
+    if(onTeam){
+      actions = `<span class="in-team">✅ 在队伍中</span>
+        <button class="btn btn-down" data-action="removeTeam" data-sprite="${id}">换下</button>`;
+    }else if(game.team.length < MAX_TEAM){
+      actions = `<button class="btn btn-up2" data-action="addTeam" data-sprite="${id}">换上场</button>`;
+    }else{
+      actions = '<div class="replace-row">' + game.team.map((tid, idx)=>
+        `<button class="btn btn-replace" data-action="replaceSlot" data-sprite="${id}" data-slot="${idx}">替换第${idx + 1}位</button>`
+      ).join('') + '</div>';
+    }
+    return `<div class="house-item">
+        <div class="house-avatar">${spriteSVG(id, 'idle')}</div>
+        <div class="house-detail">
+          <div class="house-name">${t.name} <span class="lv-badge">Lv.${sp.level}</span></div>
+          <div class="house-sub">🟫 地块 ${sp.plots.length} · 🌱 种子 ${sp.seeds}</div>
+        </div>
+        <div class="house-actions">${actions}</div>
+      </div>`;
+  }).join('');
+}
+
+/* =========================================================
+ * 模态框开关
+ * =======================================================*/
+let shopOpen = false, houseOpen = false;
+function openShop(){ shopOpen = true; renderShop(); document.getElementById('shop-modal').classList.add('show'); }
+function closeShop(){ shopOpen = false; document.getElementById('shop-modal').classList.remove('show'); }
+function openHouse(){ houseOpen = true; renderHouse(); document.getElementById('house-modal').classList.add('show'); }
+function closeHouse(){ houseOpen = false; document.getElementById('house-modal').classList.remove('show'); }
+
+/* =========================================================
+ * 周期性渲染：每 250ms 更新倒计时 / 检测成熟
+ * =======================================================*/
+function updateCountdowns(){
+  document.querySelectorAll('.plot.growing').forEach(el=>{
+    const end = +el.dataset.end, dur = +el.dataset.dur;
+    const remain = Math.max(0, end - Date.now());
+    const timeEl = el.querySelector('.plot-time');
+    if(timeEl) timeEl.textContent = Math.ceil(remain / 1000) + 's';
+    const fill = el.querySelector('.plot-bar-fill');
+    if(fill) fill.style.width = Math.min(100, Math.round((1 - remain / dur) * 100)) + '%';
+  });
+}
+function tick(){
+  let changed = false;
+  game.team.forEach(id=>{
+    game.sprites[id].plots.forEach(p=>{
+      if(p.state === 'growing' && Date.now() >= p.endTime){ p.state = 'mature'; changed = true; }
+    });
+  });
+  if(changed) renderCards();   // 有作物成熟 → 重新渲染卡片
+  else        updateCountdowns(); // 否则仅更新倒计时（保持成熟动画流畅）
+}
+setInterval(tick, 250);
+
+/* =========================================================
+ * 事件委托（统一用 data-action）
+ * =======================================================*/
+document.body.addEventListener('click', (e)=>{
+  // 点击模态框遮罩空白处关闭（清空地块弹窗除外，必须做出选择）
+  if(e.target.classList.contains('modal') && e.target.id !== 'clear-modal'){ closeShop(); closeHouse(); return; }
+
+  const el = e.target.closest('[data-action]');
+  if(!el) return;
+  const a  = el.dataset.action;
+  const id = el.dataset.sprite;
+  const sp = id ? game.sprites[id] : null;
+
+  switch(a){
+    case 'plant':       plant(sp, +el.dataset.plot); break;
+    case 'harvest':     harvestPlot(sp, +el.dataset.plot); break;
+    case 'harvestAll':  harvestAll(sp); break;
+    case 'pet':         pet(sp); break;
+    case 'upgrade':     upgrade(sp); break;
+    case 'openShop':    openShop(); break;
+    case 'openHouse':   openHouse(); break;
+    case 'closeModal':  closeShop(); closeHouse(); break;
+    case 'unlock':      unlock(id); break;
+    case 'addTeam':     addToTeam(id); break;
+    case 'removeTeam':  removeFromTeam(id); break;
+    case 'replaceSlot': replaceSlot(id, +el.dataset.slot); break;
+    case 'clearConfirm':clearConfirm(); break;
+    case 'clearCancel': cancelClearFlow(); break;
+    case 'clearPick':   clearPick(id, +el.dataset.plot); break;
+  }
+});
+
+/* =========================================================
+ * Toast 提示
+ * =======================================================*/
+function toast(msg){
+  const c = document.getElementById('toast-container');
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.textContent = msg;
+  c.appendChild(el);
+  setTimeout(()=>{ el.classList.add('hide'); }, 1600);
+  setTimeout(()=>{ el.remove(); }, 2000);
+}
+
+/* =========================================================
+ * 启动：结算初始队伍（开局单只在场 → 严格 1 块地）
+ * =======================================================*/
+settleTeam([...game.team], { prompt: false });
+</script>
+</body>
+</html>
