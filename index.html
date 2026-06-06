@@ -599,6 +599,7 @@ function harvestPlot(sp, i){
   const g = harvestGold(sp);
   game.gold += g;
   p.state = 'empty';
+  reclaimExcess(sp);   // 收获后回收多余的奖励地
   toast('🧺 收获' + TYPES[sp.id].crop + ' +' + g + '💰');
   renderAll();
   sfx('harvest');
@@ -615,6 +616,7 @@ function harvestAll(sp){
   if(count === 0){ sfx('error'); toast('暂时没有可收获的作物哦'); return; }
   const c = centerOf('[data-action="harvestAll"][data-sprite="' + sp.id + '"]') || centerOf('[data-avatar="' + sp.id + '"]');
   game.gold += gold;
+  reclaimExcess(sp);   // 收获后回收多余的奖励地
   toast('🧺 一键收获 ' + count + ' 个' + TYPES[sp.id].crop + '，+' + gold + '💰');
   renderAll();
   sfx('harvestBig');
@@ -714,6 +716,17 @@ function trimBench(sp){
   reconcilePlots(sp, Math.max(sp.level, occupied));
 }
 
+// 软回收：在场精灵超出「等级+奖励」的【空闲】地块自动收回（绝不动作物）
+// —— 满队收回奖励地时，已种植的超额地块先保留，等收获变空后由本函数回收
+function reclaimExcess(sp){
+  if(!spriteOnField(sp.id)) return false;
+  const target = sp.level + fieldBonus();
+  if(sp.plots.length <= target) return false;
+  const before = sp.plots.length;
+  reconcilePlots(sp, target);   // 只删空地；占用中的超额地块保留
+  return sp.plots.length !== before;
+}
+
 // 结算一次队伍变化：同步计时 → 整理替补 → 调整在场地块 → 必要时触发清理
 function settleTeam(snapshot, opts){
   const allowPrompt = !!(opts && opts.prompt);
@@ -741,7 +754,7 @@ function addToTeam(id){
   const snapshot = [...game.team];
   game.team.push(id);
   toast('✅ ' + TYPES[id].name + ' 上阵啦！');
-  settleTeam(snapshot, { prompt: true });
+  settleTeam(snapshot, { prompt: false });   // 软回收：满队不弹窗、不毁作物
 }
 
 function removeFromTeam(id){
@@ -757,7 +770,7 @@ function replaceSlot(id, slot){
   const snapshot = [...game.team];
   game.team[slot] = id;
   toast('🔄 ' + TYPES[id].name + ' 替换上场' + (outId ? '，' + TYPES[outId].name + ' 冻结保留' : ''));
-  settleTeam(snapshot, { prompt: true });
+  settleTeam(snapshot, { prompt: false });   // 软回收：满队不弹窗、不毁作物
 }
 
 /* ---- 「清空地块」交互：队伍变满、奖励地需收回但已无空闲地 ---- */
@@ -1040,6 +1053,7 @@ function tick(){
     sp.plots.forEach(p=>{
       if(p.state === 'growing' && Date.now() >= p.endTime){ p.state = 'mature'; changed = true; }
     });
+    if(reclaimExcess(sp)) changed = true;        // 软回收：超额空地自动收回
     if(sp.auto){
       if(autoPlantSprite(sp)) changed = true;   // 实时补种空地
       notifyAllMature(sp);                       // 全满成熟则提醒收获
