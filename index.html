@@ -186,26 +186,6 @@
   .in-team{ font-size:12px; font-weight:800; color:var(--green-d); }
   .replace-row{ display:flex; flex-direction:column; gap:5px; }
 
-  /* ============ 奖励地 / 清空地块弹窗 ============ */
-  .bonus-stat{ background:#fff4d6 !important; border-color:#f0c462 !important; color:#b9742f; }
-  .clear-tip{ font-size:13px; font-weight:700; color:#8a5320; margin:8px 0; text-align:center; line-height:1.5; }
-  .clear-line{
-    background:#fff; border:2px solid #e6cfa0; border-radius:10px;
-    padding:7px 11px; margin:6px 0; font-size:13px; font-weight:700;
-  }
-  .clear-btns{ display:flex; gap:10px; margin-top:14px; }
-  .clear-btns .btn{ flex:1; }
-  .clear-plots{ display:grid; gap:8px; margin:10px 0; justify-content:center; }
-  .clear-plot{
-    aspect-ratio:1/1; border-radius:10px; border:2px solid #c25b40;
-    background:linear-gradient(180deg,#ffd7c2,#ffb89c);
-    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px;
-    cursor:pointer; transition:transform .05s ease;
-  }
-  .clear-plot:active{ transform:scale(.92); }
-  .clear-plot .plot-icon{ font-size:22px; }
-  .clear-plot .plot-label{ font-size:9px; font-weight:800; color:#7a2e16; }
-
   /* ============ SVG 美术 / 图层 / 特效 ============ */
   .avatar{ overflow:hidden; }
   .avatar svg{ width:100%; height:100%; display:block; animation:idleBob 2.8s ease-in-out infinite; }
@@ -230,8 +210,6 @@
   @keyframes cropBob{ 0%,100%{ transform:translateY(0); } 50%{ transform:translateY(-3px); } }
   .empty-crop{ position:relative; z-index:1; font-size:20px; font-weight:900; color:rgba(110,70,20,.45); line-height:1; }
   .plot .plot-label,.plot .plot-time,.plot .plot-bar{ position:relative; z-index:2; }
-  .clear-plot{ position:relative; }
-  .clear-plot .plot-crop{ width:62%; }
 
   #fx-layer{ position:fixed; inset:0; pointer-events:none; z-index:300; overflow:hidden; }
   .fx-float{
@@ -319,9 +297,6 @@
     </div>
   </div>
 
-  <!-- 清空地块确认/选择模态框（不可点击遮罩关闭） -->
-  <div class="modal" id="clear-modal"><div class="modal-box" id="clear-box"></div></div>
-
   <div id="fx-layer"></div>
   <div id="toast-container"></div>
 
@@ -372,7 +347,7 @@ function effGrowMs(sp){
 function harvestGold(sp){
   return Math.round(TYPES[sp.id].sell * (1 + (sp.level - 1) * 0.05));
 }
-// 地块网格列数：≤4 块 2 列，5~6 块 3 列，>6 块 4 列（含奖励地时）
+// 地块网格列数：≤4 块 2 列，5~6 块 3 列，>6 块 4 列
 function plotCols(n){ return n <= 4 ? 2 : (n <= 6 ? 3 : 4); }
 
 /* =========================================================
@@ -599,7 +574,6 @@ function harvestPlot(sp, i){
   const g = harvestGold(sp);
   game.gold += g;
   p.state = 'empty';
-  reclaimExcess(sp);   // 收获后回收多余的奖励地
   toast('🧺 收获' + TYPES[sp.id].crop + ' +' + g + '💰');
   renderAll();
   sfx('harvest');
@@ -616,7 +590,6 @@ function harvestAll(sp){
   if(count === 0){ sfx('error'); toast('暂时没有可收获的作物哦'); return; }
   const c = centerOf('[data-action="harvestAll"][data-sprite="' + sp.id + '"]') || centerOf('[data-avatar="' + sp.id + '"]');
   game.gold += gold;
-  reclaimExcess(sp);   // 收获后回收多余的奖励地
   toast('🧺 一键收获 ' + count + ' 个' + TYPES[sp.id].crop + '，+' + gold + '💰');
   renderAll();
   sfx('harvestBig');
@@ -668,19 +641,11 @@ function unlock(id){
 }
 
 /* =========================================================
- * 队伍 / 精灵小屋：换场 + 奖励地块
- *  规则：开局 / 单只在场 → 无奖励（严格按等级数地块，开局 1 块）；
- *        队伍 2 只在场 → 每只额外 +1 块「奖励地」；
- *        队伍满 3 只 → 奖励地收回（即上场到第 3 只时触发）。
- *        收回奖励地时优先回收空闲地；若某精灵已无空闲地，
- *        则弹窗让玩家选择清空哪一块作物（可取消上场）。
- *        换下 / 减员只回收空地、绝不毁作物，也不弹窗。
- *  换场：被换下的精灵作物冻结保留；在场精灵解冻续算（由 syncTimers 处理）。
+ * 队伍 / 精灵小屋：换场
+ *  - 每只精灵地块数 = 自身等级，换场不增不减
+ *  - 被换下的精灵作物冻结保留；上场的精灵解冻续算（syncTimers）
  * =======================================================*/
 function spriteOnField(id){ return game.team.includes(id); }
-
-// 在场每只精灵的奖励地块数：恰好 2 只在场时 +1，其余（1 只 / 满 3 只）为 0
-function fieldBonus(){ return game.team.length === 2 ? 1 : 0; }
 
 // 计时器同步：在场精灵解冻续算，替补席精灵冻结保留（幂等，可重复调用）
 function syncTimers(){
@@ -700,158 +665,30 @@ function syncTimers(){
   }
 }
 
-// 把精灵地块数调整到 target：不足则补空地；超出时先回收空地，
-// 返回仍需删除的「有作物地块」数量（>0 表示需要玩家手动清理）
-function reconcilePlots(sp, target){
-  while(sp.plots.length < target) sp.plots.push({ state:'empty' });
-  for(let i = sp.plots.length - 1; i >= 0 && sp.plots.length > target; i--){
-    if(sp.plots[i].state === 'empty') sp.plots.splice(i, 1);
-  }
-  return Math.max(0, sp.plots.length - target);
-}
-
-// 替补席精灵：仅回收多余空地（绝不毁坏作物），目标 = max(等级, 已占用)
-function trimBench(sp){
-  const occupied = sp.plots.filter(p => p.state !== 'empty').length;
-  reconcilePlots(sp, Math.max(sp.level, occupied));
-}
-
-// 软回收：在场精灵超出「等级+奖励」的【空闲】地块自动收回（绝不动作物）
-// —— 满队收回奖励地时，已种植的超额地块先保留，等收获变空后由本函数回收
-function reclaimExcess(sp){
-  if(!spriteOnField(sp.id)) return false;
-  const target = sp.level + fieldBonus();
-  if(sp.plots.length <= target) return false;
-  const before = sp.plots.length;
-  reconcilePlots(sp, target);   // 只删空地；占用中的超额地块保留
-  return sp.plots.length !== before;
-}
-
-// 结算一次队伍变化：同步计时 → 整理替补 → 调整在场地块 → 必要时触发清理
-function settleTeam(snapshot, opts){
-  const allowPrompt = !!(opts && opts.prompt);
-  syncTimers();
-  for(const id in game.sprites){
-    if(!spriteOnField(id)) trimBench(game.sprites[id]);
-  }
-  const bonus = fieldBonus();
-  const needClear = [];
-  game.team.forEach(id=>{
-    const sp = game.sprites[id];
-    const target = sp.level + bonus;
-    const over = reconcilePlots(sp, target);
-    // 仅「上场 / 替换」导致地块需收回且已无空地时才提示；
-    // 「换下 / 减员」保留多余作物、不弹窗（crop-safe）。
-    if(over > 0 && allowPrompt) needClear.push({ id, target });
-  });
-  renderAll();
-  if(needClear.length) openClearFlow(needClear, snapshot);
-}
-
 function addToTeam(id){
   if(spriteOnField(id)) return;
   if(game.team.length >= MAX_TEAM){ toast('队伍已满（最多 3 只）'); return; }
-  const snapshot = [...game.team];
   game.team.push(id);
+  syncTimers();
   toast('✅ ' + TYPES[id].name + ' 上阵啦！');
-  settleTeam(snapshot, { prompt: false });   // 软回收：满队不弹窗、不毁作物
+  renderAll();
 }
 
 function removeFromTeam(id){
   if(!spriteOnField(id)) return;
   game.team = game.team.filter(x => x !== id);
+  syncTimers();
   toast('💤 ' + TYPES[id].name + ' 已换下休息（作物冻结保留）');
-  settleTeam([...game.team], { prompt: false });   // 换下只回收空地、不毁作物、不弹窗
+  renderAll();
 }
 
 function replaceSlot(id, slot){
   const outId = game.team[slot];
   if(outId === id) return;
-  const snapshot = [...game.team];
   game.team[slot] = id;
-  toast('🔄 ' + TYPES[id].name + ' 替换上场' + (outId ? '，' + TYPES[outId].name + ' 冻结保留' : ''));
-  settleTeam(snapshot, { prompt: false });   // 软回收：满队不弹窗、不毁作物
-}
-
-/* ---- 「清空地块」交互：队伍变满、奖励地需收回但已无空闲地 ---- */
-let clearFlow = null;   // { queue:[{id,target}], step:'confirm'|'pick', snapshot }
-
-function openClearFlow(needClear, snapshot){
-  clearFlow = { queue: needClear, step: 'confirm', snapshot };
-  renderClearModal();
-  document.getElementById('clear-modal').classList.add('show');
-}
-function closeClearFlow(){
-  clearFlow = null;
-  document.getElementById('clear-modal').classList.remove('show');
-}
-
-// 取消上场：回滚到变化前的队伍并重新结算（只补回空地，不会再要求清理）
-function cancelClearFlow(){
-  game.team = [...clearFlow.snapshot];
-  closeClearFlow();
   syncTimers();
-  for(const id in game.sprites){ if(!spriteOnField(id)) trimBench(game.sprites[id]); }
-  const bonus = fieldBonus();
-  game.team.forEach(id=>{ reconcilePlots(game.sprites[id], game.sprites[id].level + bonus); });
-  toast('已取消上场');
+  toast('🔄 ' + TYPES[id].name + ' 替换上场' + (outId ? '，' + TYPES[outId].name + ' 冻结保留' : ''));
   renderAll();
-}
-
-function renderClearModal(){
-  const box = document.getElementById('clear-box');
-  if(clearFlow.step === 'confirm'){
-    const lines = clearFlow.queue.map(q=>{
-      const sp = game.sprites[q.id];
-      const over = sp.plots.length - q.target;
-      return `<div class="clear-line">${TYPES[q.id].icon} ${TYPES[q.id].name}：需清理 <b>${over}</b> 块</div>`;
-    }).join('');
-    box.innerHTML = `
-      <div class="modal-head"><h2>⚠️ 已无空闲地块</h2></div>
-      <p class="clear-tip">队伍已满 3 只，奖励地块需要收回，但以下精灵已无空闲地块可回收：</p>
-      ${lines}
-      <p class="clear-tip">是否清空多余作物以完成上场？</p>
-      <div class="clear-btns">
-        <button class="btn btn-down" data-action="clearCancel">取消上场</button>
-        <button class="btn btn-buy" data-action="clearConfirm">确定，去选择</button>
-      </div>`;
-    return;
-  }
-  // pick：处理队首精灵
-  const q  = clearFlow.queue[0];
-  const sp = game.sprites[q.id];
-  const need = sp.plots.length - q.target;
-  const cols = plotCols(sp.plots.length);
-  box.innerHTML = `
-    <div class="modal-head"><h2>🗑️ 选择要清空的地块</h2></div>
-    <p class="clear-tip">${TYPES[q.id].icon} ${TYPES[q.id].name}：还需移除 <b>${need}</b> 块（点击作物即清除该地块）</p>
-    <div class="clear-plots" style="grid-template-columns:repeat(${cols},minmax(0,62px))">
-      ${sp.plots.map((p, i)=>{
-        const art = cropSVG(q.id, p.state === 'mature' ? 'mature' : 'growing');
-        const tag = p.state === 'mature' ? '成熟' : '生长中';
-        return `<div class="clear-plot" data-action="clearPick" data-sprite="${q.id}" data-plot="${i}">
-            <div class="plot-crop">${art}</div><div class="plot-label">${tag}</div></div>`;
-      }).join('')}
-    </div>`;
-}
-
-function clearConfirm(){ clearFlow.step = 'pick'; renderClearModal(); }
-
-function clearPick(id, i){
-  if(!clearFlow || clearFlow.step !== 'pick') return;
-  const q = clearFlow.queue[0];
-  if(!q || q.id !== id) return;
-  const sp = game.sprites[id];
-  if(i < 0 || i >= sp.plots.length) return;
-  sp.plots.splice(i, 1);                 // 移除该地块（连同其上作物）
-  if(sp.plots.length <= q.target) clearFlow.queue.shift();
-  renderAll();                           // 刷新背后的精灵卡片
-  if(clearFlow.queue.length === 0){      // 全部处理完毕
-    closeClearFlow();
-    toast('🗑️ 已清理多余地块，上场完成');
-    return;
-  }
-  renderClearModal();
 }
 
 /* =========================================================
@@ -915,7 +752,6 @@ function renderCards(){
         <div class="stat-row">
           <span>🌱 种子 ${sp.seeds}</span>
           <span>🟫 地块 ${sp.plots.length}</span>
-          ${fieldBonus() > 0 ? `<span class="bonus-stat">🎁 奖励地 +${fieldBonus()}</span>` : ''}
           <span>✨ 成熟 ${matureCount}</span>
         </div>
         <div class="plots" style="grid-template-columns:repeat(${cols},minmax(0,62px))">
@@ -1053,7 +889,6 @@ function tick(){
     sp.plots.forEach(p=>{
       if(p.state === 'growing' && Date.now() >= p.endTime){ p.state = 'mature'; changed = true; }
     });
-    if(reclaimExcess(sp)) changed = true;        // 软回收：超额空地自动收回
     if(sp.auto){
       if(autoPlantSprite(sp)) changed = true;   // 实时补种空地
       notifyAllMature(sp);                       // 全满成熟则提醒收获
@@ -1069,8 +904,8 @@ setInterval(tick, 250);
  * =======================================================*/
 document.body.addEventListener('click', (e)=>{
   unlockAudio();   // 首次用户交互时启动音频（满足浏览器自动播放限制）
-  // 点击模态框遮罩空白处关闭（清空地块弹窗除外，必须做出选择）
-  if(e.target.classList.contains('modal') && e.target.id !== 'clear-modal'){ closeShop(); closeHouse(); return; }
+  // 点击模态框遮罩空白处关闭
+  if(e.target.classList.contains('modal')){ closeShop(); closeHouse(); return; }
 
   const el = e.target.closest('[data-action]');
   if(!el) return;
@@ -1093,9 +928,6 @@ document.body.addEventListener('click', (e)=>{
     case 'addTeam':     addToTeam(id); break;
     case 'removeTeam':  removeFromTeam(id); break;
     case 'replaceSlot': replaceSlot(id, +el.dataset.slot); break;
-    case 'clearConfirm':clearConfirm(); break;
-    case 'clearCancel': cancelClearFlow(); break;
-    case 'clearPick':   clearPick(id, +el.dataset.plot); break;
   }
 });
 
@@ -1113,9 +945,9 @@ function toast(msg){
 }
 
 /* =========================================================
- * 启动：结算初始队伍（开局单只在场 → 严格 1 块地）
+ * 启动
  * =======================================================*/
-settleTeam([...game.team], { prompt: false });
+renderAll();
 </script>
 </body>
 </html>
