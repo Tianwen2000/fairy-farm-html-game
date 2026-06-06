@@ -281,6 +281,7 @@
   <div class="topbar">
     <div class="gold-box"><span class="coin">💰</span><span id="gold">0</span></div>
     <div class="spacer"></div>
+    <button class="btn" id="sound-btn" data-action="toggleSound" title="音效开关">🔊</button>
     <button class="btn" data-action="openShop">🛒 商城</button>
     <button class="btn" data-action="openHouse">🏠 精灵小屋</button>
   </div>
@@ -511,6 +512,62 @@ function petAnim(id){
 }
 
 /* =========================================================
+ * 音效：Web Audio 实时合成（零音频文件，单 HTML 不变）
+ *  - 浏览器要求首次用户交互后才能出声 → unlockAudio() 在首次点击时启动
+ *  - 顶部 🔊/🔇 按钮一键静音
+ * =======================================================*/
+let AC = null, masterGain = null, soundOn = true;
+function unlockAudio(){
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if(!Ctx) return;
+  if(!AC){
+    AC = new Ctx();
+    masterGain = AC.createGain();
+    masterGain.gain.value = soundOn ? 0.28 : 0;
+    masterGain.connect(AC.destination);
+  }
+  if(AC.state === 'suspended') AC.resume();
+}
+function toggleSound(){
+  soundOn = !soundOn;
+  if(masterGain) masterGain.gain.value = soundOn ? 0.28 : 0;
+  const btn = document.getElementById('sound-btn');
+  if(btn) btn.textContent = soundOn ? '🔊' : '🔇';
+  toast(soundOn ? '🔊 音效已开' : '🔇 已静音');
+}
+// 合成单个音符：freq 频率 / dur 时长(秒) / opt{type,vol,delay,slideTo}
+function tone(freq, dur, opt){
+  if(!AC || !soundOn) return;
+  opt = opt || {};
+  const t0 = AC.currentTime + (opt.delay || 0);
+  const osc = AC.createOscillator(), g = AC.createGain();
+  osc.type = opt.type || 'triangle';
+  osc.frequency.setValueAtTime(freq, t0);
+  if(opt.slideTo) osc.frequency.exponentialRampToValueAtTime(opt.slideTo, t0 + dur);
+  const peak = opt.vol != null ? opt.vol : 0.5;
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(peak, t0 + 0.012);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  osc.connect(g); g.connect(masterGain);
+  osc.start(t0); osc.stop(t0 + dur + 0.03);
+}
+// 各动作音效
+function sfx(name){
+  if(!AC || !soundOn) return;
+  switch(name){
+    case 'plant':      tone(420, 0.12, {type:'sine', slideTo:240, vol:0.5}); break;
+    case 'harvest':    tone(880, 0.10, {vol:0.5}); tone(1320, 0.12, {vol:0.45, delay:0.08}); break;
+    case 'harvestBig': [784,988,1175,1568].forEach((f,i)=>tone(f, 0.12, {vol:0.45, delay:i*0.08})); break;
+    case 'pet':        tone(300, 0.13, {type:'sine', slideTo:640, vol:0.5}); break;
+    case 'levelup':    [523,659,784,1047].forEach((f,i)=>tone(f, 0.14, {vol:0.5, delay:i*0.08})); break;
+    case 'unlock':     tone(660, 0.12, {type:'square', vol:0.32}); tone(990, 0.18, {type:'square', vol:0.3, delay:0.1}); break;
+    case 'mature':     tone(1047, 0.5, {type:'sine', vol:0.4}); tone(1568, 0.5, {type:'sine', vol:0.16}); break;
+    case 'error':      tone(180, 0.18, {type:'sawtooth', slideTo:110, vol:0.4}); break;
+    case 'click':      tone(900, 0.05, {type:'square', vol:0.18}); break;
+  }
+}
+
+/* =========================================================
  * 核心玩法操作
  * =======================================================*/
 // 种植
@@ -518,7 +575,7 @@ function plant(sp, i){
   if(!sp) return;
   const p = sp.plots[i];
   if(!p || p.state !== 'empty') return;
-  if(sp.seeds <= 0){ toast('🌱 种子不足，先「抚摸」精灵获取种子吧～'); return; }
+  if(sp.seeds <= 0){ sfx('error'); toast('🌱 种子不足，先「抚摸」精灵获取种子吧～'); return; }
   const c = centerOf('[data-sprite="' + sp.id + '"][data-plot="' + i + '"]');
   sp.seeds--;
   const dur = effGrowMs(sp);
@@ -529,6 +586,7 @@ function plant(sp, i){
   p.frozen = false;
   toast('🌱 种下了' + TYPES[sp.id].crop + '，' + Math.ceil(dur / 1000) + 's 后成熟');
   renderAll();
+  sfx('plant');
   if(c) fxBurst(c.x, c.y, 5, ['🌱','✨']);
 }
 
@@ -543,6 +601,7 @@ function harvestPlot(sp, i){
   p.state = 'empty';
   toast('🧺 收获' + TYPES[sp.id].crop + ' +' + g + '💰');
   renderAll();
+  sfx('harvest');
   if(c){ fxFloat(c.x, c.y, '+' + g + '💰', '#fff3c4'); fxBurst(c.x, c.y, 6, ['✨','⭐','🌟']); }
 }
 
@@ -553,11 +612,12 @@ function harvestAll(sp){
   sp.plots.forEach(p=>{
     if(p.state === 'mature'){ count++; gold += harvestGold(sp); p.state = 'empty'; }
   });
-  if(count === 0){ toast('暂时没有可收获的作物哦'); return; }
+  if(count === 0){ sfx('error'); toast('暂时没有可收获的作物哦'); return; }
   const c = centerOf('[data-action="harvestAll"][data-sprite="' + sp.id + '"]') || centerOf('[data-avatar="' + sp.id + '"]');
   game.gold += gold;
   toast('🧺 一键收获 ' + count + ' 个' + TYPES[sp.id].crop + '，+' + gold + '💰');
   renderAll();
+  sfx('harvestBig');
   if(c){ fxFloat(c.x, c.y, '+' + gold + '💰', '#fff3c4'); fxBurst(c.x, c.y, Math.min(14, count * 2 + 4), ['✨','⭐','🌟','🌾']); }
 }
 
@@ -572,6 +632,7 @@ function pet(sp){
   toast('🤚 抚摸了' + TYPES[sp.id].name + '，获得 ' + n + ' 个' + TYPES[sp.id].seed);
   renderAll();
   petAnim(sp.id);
+  sfx('pet');
   const c = centerOf('[data-avatar="' + sp.id + '"]');
   if(c){ fxFloat(c.x, c.y, '+' + n + '🌱', '#d8f5a8'); fxBurst(c.x, c.y, n + 2, ['💛','✨','🌱']); }
 }
@@ -579,14 +640,15 @@ function pet(sp){
 // 升级：消耗递增金币，立即 +1 块空地
 function upgrade(sp){
   if(!sp) return;
-  if(sp.level >= MAX_LEVEL){ toast('已经是满级 Lv.6 啦！'); return; }
+  if(sp.level >= MAX_LEVEL){ sfx('error'); toast('已经是满级 Lv.6 啦！'); return; }
   const cost = UPGRADE_COSTS[sp.level - 1];
-  if(game.gold < cost){ toast('金币不足，升级需要 ' + cost + '💰'); return; }
+  if(game.gold < cost){ sfx('error'); toast('金币不足，升级需要 ' + cost + '💰'); return; }
   game.gold -= cost;
   sp.level++;
   sp.plots.push({ state:'empty' });   // 新地块为空闲
   toast('⬆️ ' + TYPES[sp.id].name + ' 升到 Lv.' + sp.level + '，解锁新地块！');
   renderAll();
+  sfx('levelup');
 }
 
 /* =========================================================
@@ -595,11 +657,12 @@ function upgrade(sp){
 function unlock(id){
   const t = TYPES[id];
   if(game.sprites[id] && game.sprites[id].unlocked) return;
-  if(game.gold < t.unlock){ toast('金币不足，解锁需要 ' + t.unlock + '💰'); return; }
+  if(game.gold < t.unlock){ sfx('error'); toast('金币不足，解锁需要 ' + t.unlock + '💰'); return; }
   game.gold -= t.unlock;
   game.sprites[id] = createSprite(id);
   toast('🎉 解锁了' + t.name + '！已存入精灵小屋');
   renderAll();
+  sfx('unlock');
 }
 
 /* =========================================================
@@ -947,7 +1010,7 @@ function autoPlantSprite(sp){
   for(const p of sp.plots){
     if(p.state !== 'empty') continue;
     if(sp.seeds <= 0){
-      if(!sp._noSeed){ sp._noSeed = true; toast('🌱 ' + TYPES[sp.id].name + ' 种子用完，自动种植暂停，去「抚摸」补种子吧'); }
+      if(!sp._noSeed){ sp._noSeed = true; sfx('error'); toast('🌱 ' + TYPES[sp.id].name + ' 种子用完，自动种植暂停，去「抚摸」补种子吧'); }
       break;
     }
     sp.seeds--;
@@ -956,6 +1019,7 @@ function autoPlantSprite(sp){
     sp._noSeed = false;
     changed = true;
   }
+  if(changed) sfx('plant');
   return changed;
 }
 
@@ -963,7 +1027,7 @@ function autoPlantSprite(sp){
 function notifyAllMature(sp){
   const allMature = sp.plots.length > 0 && sp.plots.every(p => p.state === 'mature');
   if(allMature){
-    if(!sp._matured){ sp._matured = true; toast('🌟 ' + TYPES[sp.id].name + '：地块植物已经全部成熟，请收获'); }
+    if(!sp._matured){ sp._matured = true; sfx('mature'); toast('🌟 ' + TYPES[sp.id].name + '：地块植物已经全部成熟，请收获'); }
   }else{
     sp._matured = false;
   }
@@ -990,6 +1054,7 @@ setInterval(tick, 250);
  * 事件委托（统一用 data-action）
  * =======================================================*/
 document.body.addEventListener('click', (e)=>{
+  unlockAudio();   // 首次用户交互时启动音频（满足浏览器自动播放限制）
   // 点击模态框遮罩空白处关闭（清空地块弹窗除外，必须做出选择）
   if(e.target.classList.contains('modal') && e.target.id !== 'clear-modal'){ closeShop(); closeHouse(); return; }
 
@@ -1008,6 +1073,7 @@ document.body.addEventListener('click', (e)=>{
     case 'upgrade':     upgrade(sp); break;
     case 'openShop':    openShop(); break;
     case 'openHouse':   openHouse(); break;
+    case 'toggleSound': toggleSound(); break;
     case 'closeModal':  closeShop(); closeHouse(); break;
     case 'unlock':      unlock(id); break;
     case 'addTeam':     addToTeam(id); break;
