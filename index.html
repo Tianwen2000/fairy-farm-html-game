@@ -71,6 +71,10 @@
   .btn-up2  { background:var(--green); box-shadow:0 4px 0 var(--green-d); }
   .btn-down { background:#e07a5f; box-shadow:0 4px 0 #c25b40; }
   .btn-replace{ background:#7c9ce0; box-shadow:0 4px 0 #5b79c0; font-size:12px; padding:7px 9px; }
+  .btn-auto{ width:100%; margin-top:8px; font-size:13px; background:#9aa6b2; box-shadow:0 4px 0 #74808c; }
+  .btn-auto:active{ box-shadow:0 1px 0 #74808c; }
+  .btn-auto.on{ background:var(--green); box-shadow:0 4px 0 var(--green-d); animation:autoPulse 1.4s ease-in-out infinite; }
+  @keyframes autoPulse{ 0%,100%{ filter:brightness(1); } 50%{ filter:brightness(1.13); } }
 
   /* ============ 主区域 / 精灵卡片 ============ */
   .title{
@@ -346,13 +350,13 @@ const game = {
   gold: 320,
   team: ['wheat'],            // 当前上阵精灵 id（最多 3 个）
   sprites: {
-    wheat: { id:'wheat', level:1, seeds:5, unlocked:true, plots:[ {state:'empty'} ] },
+    wheat: { id:'wheat', level:1, seeds:5, unlocked:true, auto:false, plots:[ {state:'empty'} ] },
   },
 };
 
 /* 创建一只新精灵（解锁时调用）：Lv.1 / 1 块空地 / 0 种子 */
 function createSprite(id){
-  return { id, level:1, seeds:0, unlocked:true, plots:[ {state:'empty'} ] };
+  return { id, level:1, seeds:0, unlocked:true, auto:false, plots:[ {state:'empty'} ] };
 }
 
 /* =========================================================
@@ -847,6 +851,9 @@ function renderCards(){
             🧺 一键收获${matureCount > 0 ? '(' + matureCount + ')' : ''}
           </button>
         </div>
+        <button class="btn btn-auto ${sp.auto ? 'on' : ''}" data-action="toggleAuto" data-sprite="${id}">
+          ${sp.auto ? '🤖 自动种植：开（点此关闭）' : '🌱 自动种植：关（点此开启）'}
+        </button>
       </div>`;
   }).join('');
 }
@@ -923,14 +930,58 @@ function updateCountdowns(){
     if(fill) fill.style.width = Math.min(100, Math.round((1 - remain / dur) * 100)) + '%';
   });
 }
+/* =========================================================
+ * 自动种植：实时把空地种满；全部成熟时提醒收获（不自动收获）
+ * =======================================================*/
+function toggleAuto(id){
+  const sp = game.sprites[id]; if(!sp) return;
+  sp.auto = !sp.auto;
+  if(sp.auto){ sp._matured = false; sp._noSeed = false; toast('🤖 ' + TYPES[id].name + ' 已开启自动种植'); }
+  else       { toast('⏸️ ' + TYPES[id].name + ' 已关闭自动种植'); }
+  renderAll();
+}
+
+// 把空闲地块自动种满（受种子数限制）；返回是否有改动
+function autoPlantSprite(sp){
+  let changed = false;
+  for(const p of sp.plots){
+    if(p.state !== 'empty') continue;
+    if(sp.seeds <= 0){
+      if(!sp._noSeed){ sp._noSeed = true; toast('🌱 ' + TYPES[sp.id].name + ' 种子用完，自动种植暂停，去「抚摸」补种子吧'); }
+      break;
+    }
+    sp.seeds--;
+    const dur = effGrowMs(sp);
+    p.state = 'growing'; p.duration = dur; p.endTime = Date.now() + dur; p.remaining = dur; p.frozen = false;
+    sp._noSeed = false;
+    changed = true;
+  }
+  return changed;
+}
+
+// 全部成熟 → 提醒一次（手动收获后自动复位）
+function notifyAllMature(sp){
+  const allMature = sp.plots.length > 0 && sp.plots.every(p => p.state === 'mature');
+  if(allMature){
+    if(!sp._matured){ sp._matured = true; toast('🌟 ' + TYPES[sp.id].name + '：地块植物已经全部成熟，请收获'); }
+  }else{
+    sp._matured = false;
+  }
+}
+
 function tick(){
   let changed = false;
   game.team.forEach(id=>{
-    game.sprites[id].plots.forEach(p=>{
+    const sp = game.sprites[id];
+    sp.plots.forEach(p=>{
       if(p.state === 'growing' && Date.now() >= p.endTime){ p.state = 'mature'; changed = true; }
     });
+    if(sp.auto){
+      if(autoPlantSprite(sp)) changed = true;   // 实时补种空地
+      notifyAllMature(sp);                       // 全满成熟则提醒收获
+    }
   });
-  if(changed) renderCards();   // 有作物成熟 → 重新渲染卡片
+  if(changed) renderCards();   // 有作物成熟或自动补种 → 重新渲染卡片
   else        updateCountdowns(); // 否则仅更新倒计时（保持成熟动画流畅）
 }
 setInterval(tick, 250);
@@ -953,6 +1004,7 @@ document.body.addEventListener('click', (e)=>{
     case 'harvest':     harvestPlot(sp, +el.dataset.plot); break;
     case 'harvestAll':  harvestAll(sp); break;
     case 'pet':         pet(sp); break;
+    case 'toggleAuto':  toggleAuto(id); break;
     case 'upgrade':     upgrade(sp); break;
     case 'openShop':    openShop(); break;
     case 'openHouse':   openHouse(); break;
