@@ -233,6 +233,32 @@
     100%{ opacity:0; transform:translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(1.05) rotate(170deg); }
   }
 
+  /* ============ 任务中心 / 设置 ============ */
+  .btn-task{ position:relative; }
+  .badge{ position:absolute; top:-5px; right:-5px; width:11px; height:11px; background:#ff3b3b; border:2px solid #fff7e8; border-radius:50%; display:none; box-shadow:0 1px 3px rgba(0,0,0,.3); }
+  .task-h{ font-weight:900; font-size:14px; color:var(--brown-d); margin:14px 0 8px; }
+  .task-h:first-child{ margin-top:0; }
+  .task-list{ display:flex; flex-direction:column; gap:10px; }
+  .task-item{
+    display:flex; align-items:center; gap:12px;
+    background:var(--cream); border:3px solid #e6cfa0; border-radius:16px; padding:10px 12px;
+  }
+  .task-ico{
+    font-size:26px; width:46px; height:46px; flex:none;
+    display:flex; align-items:center; justify-content:center;
+    background:#fff; border:2px solid var(--brown); border-radius:12px;
+  }
+  .task-body{ flex:1; min-width:0; }
+  .task-title{ font-weight:900; font-size:14px; color:var(--brown-d); }
+  .task-sub{ font-size:12px; color:#8a6a3a; font-weight:700; margin-top:3px; }
+  .task-bar{ height:7px; background:rgba(0,0,0,.12); border-radius:5px; overflow:hidden; margin:5px 0; }
+  .task-fill{ height:100%; background:linear-gradient(90deg,#7bd34f,#4ea52c); border-radius:5px; transition:width .25s linear; }
+  .cdk-row{ display:flex; gap:8px; width:100%; margin-top:8px; }
+  .cdk-input{
+    flex:1; font-family:inherit; font-weight:700; font-size:14px; padding:8px 10px;
+    border:2px solid var(--brown); border-radius:12px; background:#fff; color:var(--brown-d); min-width:0;
+  }
+
   /* ============ Toast ============ */
   #toast-container{
     position:fixed; left:50%; bottom:84px; transform:translateX(-50%);
@@ -266,7 +292,9 @@
     <div class="spacer"></div>
     <button class="btn btn-restart" data-action="restart" title="重新开始（清空存档）">🔄</button>
     <button class="btn" id="sound-btn" data-action="toggleSound" title="音效开关">🔊</button>
+    <button class="btn" data-action="openSettings" title="设置">⚙️</button>
     <button class="btn" data-action="openCodex" title="精灵图鉴">📖 图鉴</button>
+    <button class="btn btn-task" id="task-btn" data-action="openTask" title="任务中心">🎯 任务<span class="badge" id="task-badge"></span></button>
     <button class="btn" data-action="openShop">🛒 商城</button>
     <button class="btn" data-action="openHouse">🏠 精灵小屋</button>
   </div>
@@ -314,6 +342,28 @@
     </div>
   </div>
 
+  <!-- 任务中心模态框 -->
+  <div class="modal" id="task-modal">
+    <div class="modal-box">
+      <div class="modal-head">
+        <h2>🎯 任务中心</h2>
+        <button class="x" data-action="closeModal">✕</button>
+      </div>
+      <div id="task-content"></div>
+    </div>
+  </div>
+
+  <!-- 设置模态框 -->
+  <div class="modal" id="settings-modal">
+    <div class="modal-box">
+      <div class="modal-head">
+        <h2>⚙️ 设置</h2>
+        <button class="x" data-action="closeModal">✕</button>
+      </div>
+      <div id="settings-content"></div>
+    </div>
+  </div>
+
   <div id="fx-layer"></div>
   <div id="toast-container"></div>
 
@@ -350,6 +400,10 @@ const game = {
     wheat: { id:'wheat', level:1, seeds:5, unlocked:true, auto:false, plots:[ {state:'empty'} ] },
   },
   stats: { harvest: {} },     // 累计收获数（按精灵 id 计），供图鉴/成就用
+  signin: { last: '', streak: 0 },   // 每日签到：上次签到日期 / 连续天数
+  orders: [],                        // 订单任务（运行时由 ensureOrders 补满 3 条）
+  achievements: {},                  // 已领取成就 id → true
+  superAuto: false,                  // 全自动超级管理（需 CDK 开启）
 };
 
 /* =========================================================
@@ -377,7 +431,9 @@ function buildSave(){
     };
   }
   const stats = { harvest: (game.stats && game.stats.harvest) || {} };
-  return { v:1, gold: game.gold, team: [...game.team], sprites, stats };
+  return { v:1, gold: game.gold, team: [...game.team], sprites, stats,
+           signin: game.signin, orders: game.orders, achievements: game.achievements,
+           superAuto: !!game.superAuto };
 }
 
 function saveGame(){
@@ -391,6 +447,12 @@ function loadGame(){
   if(!data.team.every(id => data.sprites[id] && TYPES[id])) return false;   // 队伍 id 必须有效
   game.gold = Math.max(0, data.gold | 0);
   game.stats = { harvest: (data.stats && data.stats.harvest && typeof data.stats.harvest === 'object') ? data.stats.harvest : {} };
+  game.signin = (data.signin && typeof data.signin === 'object')
+    ? { last: String(data.signin.last || ''), streak: Math.max(0, data.signin.streak | 0) } : { last:'', streak:0 };
+  game.orders = Array.isArray(data.orders)
+    ? data.orders.filter(o => o && TYPES[o.crop]).map(o => ({ crop:o.crop, need:Math.max(1, o.need | 0), got:Math.max(0, o.got | 0), gold:Math.max(0, o.gold | 0), seeds:Math.max(0, o.seeds | 0) })) : [];
+  game.achievements = (data.achievements && typeof data.achievements === 'object') ? data.achievements : {};
+  game.superAuto = !!data.superAuto;
   game.sprites = {};
   for(const id in data.sprites){
     if(!TYPES[id]) continue;
@@ -421,6 +483,10 @@ function resetToDefault(){
   game.team = ['wheat'];
   game.sprites = { wheat: { id:'wheat', level:1, seeds:5, unlocked:true, auto:false, plots:[ {state:'empty'} ] } };
   game.stats = { harvest: {} };
+  game.signin = { last:'', streak:0 };
+  game.orders = [];
+  game.achievements = {};
+  game.superAuto = false;
 }
 
 // 重新开始：二次确认（再点一次）后清空存档、从头来
@@ -727,6 +793,7 @@ function harvestPlot(sp, i){
   game.gold += g;
   p.state = 'empty';
   game.stats.harvest[sp.id] = (game.stats.harvest[sp.id] || 0) + 1;
+  advanceOrders(sp.id, 1);
   toast('🧺 收获' + TYPES[sp.id].crop + ' +' + g + '💰');
   renderAll();
   sfx('harvest');
@@ -744,6 +811,7 @@ function harvestAll(sp){
   const c = centerOf('[data-action="harvestAll"][data-sprite="' + sp.id + '"]') || centerOf('[data-avatar="' + sp.id + '"]');
   game.gold += gold;
   game.stats.harvest[sp.id] = (game.stats.harvest[sp.id] || 0) + count;
+  advanceOrders(sp.id, count);
   toast('🧺 一键收获 ' + count + ' 个' + TYPES[sp.id].crop + '，+' + gold + '💰');
   renderAll();
   sfx('harvestBig');
@@ -858,14 +926,189 @@ function replaceSlot(id, slot){
 }
 
 /* =========================================================
+ * 任务中心：每日签到 / 订单 / 成就（数据随存档持久化，保持简单）
+ * =======================================================*/
+const SIGNIN_REWARDS = [
+  { gold:50, seeds:1 }, { gold:80, seeds:1 }, { gold:120, seeds:2 }, { gold:160, seeds:2 },
+  { gold:220, seeds:3 }, { gold:300, seeds:3 }, { gold:500, seeds:5 },   // 第 7 天后循环
+];
+const ACHIEVEMENTS = [
+  { id:'firstHarvest', name:'初次丰收', desc:'累计收获 1 个作物',   gold:50,   seeds:2, done:()=>totalHarvest() >= 1 },
+  { id:'harvest100',   name:'小有收成', desc:'累计收获 100 个作物', gold:300,  seeds:3, done:()=>totalHarvest() >= 100 },
+  { id:'unlock4',      name:'初识伙伴', desc:'解锁 4 只精灵',       gold:200,  seeds:2, done:()=>unlockedCount() >= 4 },
+  { id:'unlockAll',    name:'集齐图鉴', desc:'解锁全部精灵',        gold:2000, seeds:8, done:()=>unlockedCount() >= ORDER.length },
+  { id:'maxLevel',     name:'满级精灵', desc:'任意精灵升到 Lv.6',   gold:500,  seeds:5, done:()=>Object.keys(game.sprites).some(k => game.sprites[k].level >= MAX_LEVEL) },
+  { id:'team6',        name:'六员大将', desc:'同时上阵 6 只精灵',   gold:500,  seeds:5, done:()=>game.team.length >= 6 },
+];
+
+function totalHarvest(){ let s = 0; const h = (game.stats && game.stats.harvest) || {}; for(const k in h) s += h[k] || 0; return s; }
+function grantSeeds(n){ const id = game.team[0] || 'wheat'; if(game.sprites[id]) game.sprites[id].seeds += n; }
+function dstr(d){ return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(); }
+function todayStr(){ return dstr(new Date()); }
+function yesterStr(){ return dstr(new Date(Date.now() - 86400000)); }
+
+// 订单
+function makeOrder(){
+  const pool = ORDER.filter(id => game.sprites[id] && game.sprites[id].unlocked);
+  const id = pool[Math.floor(Math.random() * pool.length)] || 'wheat';
+  const t = TYPES[id], need = 6 + Math.floor(Math.random() * 9);
+  return { crop:id, need, got:0, gold: Math.round(t.sell * need * 1.6), seeds: 2 + Math.floor(Math.random() * 4) };
+}
+function ensureOrders(){ if(!Array.isArray(game.orders)) game.orders = []; while(game.orders.length < 3) game.orders.push(makeOrder()); }
+function advanceOrders(cropId, n){ if(Array.isArray(game.orders)) game.orders.forEach(o => { if(o.crop === cropId && o.got < o.need) o.got = Math.min(o.need, o.got + n); }); }
+function claimOrder(idx){
+  const o = game.orders[idx];
+  if(!o || o.got < o.need) return;
+  game.gold += o.gold; grantSeeds(o.seeds);
+  toast('📋 订单完成！+' + o.gold + '💰 +' + o.seeds + '🌱'); sfx('levelup');
+  game.orders[idx] = makeOrder();
+  renderAll();
+}
+
+// 签到
+function canSignin(){ return (game.signin.last || '') !== todayStr(); }
+function doSignin(){
+  if(!canSignin()) return;
+  game.signin.streak = (game.signin.last === yesterStr()) ? (game.signin.streak || 0) + 1 : 1;
+  game.signin.last = todayStr();
+  const r = SIGNIN_REWARDS[(game.signin.streak - 1) % 7];
+  game.gold += r.gold; grantSeeds(r.seeds);
+  toast('📅 签到成功！连续 ' + game.signin.streak + ' 天 +' + r.gold + '💰 +' + r.seeds + '🌱'); sfx('unlock');
+  renderAll();
+}
+
+// 成就
+function claimAchv(id){
+  const a = ACHIEVEMENTS.find(x => x.id === id);
+  if(!a || game.achievements[id] || !a.done()) return;
+  game.achievements[id] = true;
+  game.gold += a.gold; grantSeeds(a.seeds);
+  toast('🏆 成就达成「' + a.name + '」+' + a.gold + '💰'); sfx('levelup');
+  renderAll();
+}
+
+// 红点：有可领的签到/订单/成就时在🎯按钮上显示
+function anyTaskClaimable(){
+  if(canSignin()) return true;
+  if(Array.isArray(game.orders) && game.orders.some(o => o.got >= o.need)) return true;
+  return ACHIEVEMENTS.some(a => !game.achievements[a.id] && a.done());
+}
+function updateTaskBadge(){ const b = document.getElementById('task-badge'); if(b) b.style.display = anyTaskClaimable() ? 'inline-block' : 'none'; }
+
+// 渲染（一个弹窗，三块竖排）
+function renderTask(){
+  ensureOrders();
+  document.getElementById('task-content').innerHTML =
+    renderSignin() +
+    '<div class="task-h">📋 订单 · 收获指定作物领奖励</div>' + renderOrders() +
+    '<div class="task-h">🏆 成就</div>' + renderAchv();
+  updateTaskBadge();
+}
+function renderSignin(){
+  const claimable = canSignin();
+  const cont = game.signin.last === yesterStr();
+  const prospective = claimable ? (cont ? (game.signin.streak || 0) + 1 : 1) : (game.signin.streak || 0);
+  const r = SIGNIN_REWARDS[(Math.max(1, prospective) - 1) % 7];
+  return `<div class="task-h">📅 每日签到</div>
+    <div class="task-item">
+      <div class="task-ico">🔥</div>
+      <div class="task-body">
+        <div class="task-title">连续签到 ${game.signin.streak || 0} 天</div>
+        <div class="task-sub">${claimable ? ('今日可领 +' + r.gold + '💰 +' + r.seeds + '🌱') : '今日已签到，明天再来～'}</div>
+      </div>
+      <button class="btn ${claimable ? 'btn-buy' : ''}" data-action="signin" ${claimable ? '' : 'disabled'}>${claimable ? '签到' : '已签'}</button>
+    </div>`;
+}
+function renderOrders(){
+  ensureOrders();
+  return '<div class="task-list">' + game.orders.map((o, idx)=>{
+    const t = TYPES[o.crop], done = o.got >= o.need, pct = Math.min(100, Math.round(o.got / o.need * 100));
+    return `<div class="task-item">
+      <div class="task-ico">${t.cropIcon}</div>
+      <div class="task-body">
+        <div class="task-title">收获 ${o.need} 个 ${t.crop}</div>
+        <div class="task-bar"><div class="task-fill" style="width:${pct}%"></div></div>
+        <div class="task-sub">${Math.min(o.got, o.need)}/${o.need} · +${o.gold}💰 +${o.seeds}🌱</div>
+      </div>
+      <button class="btn ${done ? 'btn-buy' : ''}" data-action="claimOrder" data-idx="${idx}" ${done ? '' : 'disabled'}>${done ? '领取' : '进行中'}</button>
+    </div>`;
+  }).join('') + '</div>';
+}
+function renderAchv(){
+  return '<div class="task-list">' + ACHIEVEMENTS.map(a=>{
+    const claimed = !!game.achievements[a.id], done = a.done();
+    const btn = claimed ? '<button class="btn" disabled>已领取</button>'
+      : done ? `<button class="btn btn-buy" data-action="claimAchv" data-id="${a.id}">领取</button>`
+      : '<button class="btn" disabled>未达成</button>';
+    return `<div class="task-item">
+      <div class="task-ico">${claimed ? '🏆' : (done ? '🎉' : '🔒')}</div>
+      <div class="task-body"><div class="task-title">${a.name}</div><div class="task-sub">${a.desc} · +${a.gold}💰 +${a.seeds}🌱</div></div>
+      ${btn}
+    </div>`;
+  }).join('') + '</div>';
+}
+
+/* =========================================================
+ * 设置 / 全自动超级管理（CDK 解锁；仅含 自动抚摸+自动收获+自动种植）
+ * =======================================================*/
+const SUPER_CDK = 'deng1201';
+function superOn(){
+  const inp = document.getElementById('cdk-input');
+  const v = inp ? (inp.value || '').trim() : '';
+  if(v === SUPER_CDK){ game.superAuto = true; toast('🤖 全自动超级管理已开启！'); sfx('levelup'); renderAll(); }
+  else { sfx('error'); toast('❌ CDK 不正确'); }
+}
+function superOff(){ game.superAuto = false; toast('已关闭全自动超级管理'); renderAll(); }
+function renderSettings(){
+  const on = !!game.superAuto;
+  document.getElementById('settings-content').innerHTML = on
+    ? `<div class="task-item"><div class="task-ico">🤖</div>
+        <div class="task-body"><div class="task-title">全自动超级管理 <span class="owned-tag">运行中</span></div>
+          <div class="task-sub">自动抚摸 + 自动收获 + 自动种植，解放双手</div></div>
+        <button class="btn btn-down" data-action="superOff">关闭</button></div>`
+    : `<div class="task-item" style="flex-wrap:wrap;"><div class="task-ico">🤖</div>
+        <div class="task-body"><div class="task-title">全自动超级管理</div>
+          <div class="task-sub">自动抚摸 + 自动收获 + 自动种植；需输入管理员 CDK 开启</div></div>
+        <div class="cdk-row"><input id="cdk-input" class="cdk-input" placeholder="输入 CDK" autocomplete="off"/>
+          <button class="btn btn-buy" data-action="superOn">启用</button></div></div>`;
+}
+// 全自动一轮（静默不刷屏）：收获成熟 → 种子不足则按正常规则自动抚摸 → 种满空地
+function superTick(){
+  let changed = false;
+  game.team.forEach(id=>{
+    const sp = game.sprites[id];
+    let hc = 0, hg = 0;
+    sp.plots.forEach(p=>{ if(p.state === 'mature'){ hc++; hg += harvestGold(sp); p.state = 'empty'; } });
+    if(hc){ game.gold += hg; game.stats.harvest[id] = (game.stats.harvest[id] || 0) + hc; advanceOrders(id, hc); changed = true; }
+    const empties = sp.plots.filter(p => p.state === 'empty').length;
+    if(empties > 0 && sp.seeds < empties){            // 自动抚摸（正常随机规则，非免费）
+      let n = 1 + Math.floor(Math.random() * 3);
+      if(sp.level >= 2) n += 1; if(sp.level >= 4) n += 1;
+      sp.seeds += Math.min(6, n); changed = true;
+    }
+    sp.plots.forEach(p=>{                              // 自动种植
+      if(p.state === 'empty' && sp.seeds > 0){
+        sp.seeds--; const dur = effGrowMs(sp);
+        p.state = 'growing'; p.duration = dur; p.endTime = Date.now() + dur; p.remaining = dur; p.frozen = false;
+        changed = true;
+      }
+    });
+  });
+  return changed;
+}
+
+/* =========================================================
  * 渲染
  * =======================================================*/
 function renderAll(){
   document.getElementById('gold').textContent = game.gold;
   renderCards();
-  if(shopOpen)  renderShop();
-  if(houseOpen) renderHouse();
-  if(codexOpen) renderCodex();
+  if(shopOpen)     renderShop();
+  if(houseOpen)    renderHouse();
+  if(codexOpen)    renderCodex();
+  if(taskOpen)     renderTask();
+  if(settingsOpen) renderSettings();
+  updateTaskBadge();
   saveGame();   // 每次操作后自动存档
 }
 
@@ -1049,14 +1292,18 @@ function renderCodex(){
 /* =========================================================
  * 模态框开关
  * =======================================================*/
-let shopOpen = false, houseOpen = false, codexOpen = false;
+let shopOpen = false, houseOpen = false, codexOpen = false, taskOpen = false, settingsOpen = false;
 function openShop(){ shopOpen = true; renderShop(); document.getElementById('shop-modal').classList.add('show'); }
 function closeShop(){ shopOpen = false; document.getElementById('shop-modal').classList.remove('show'); }
 function openHouse(){ houseOpen = true; renderHouse(); document.getElementById('house-modal').classList.add('show'); }
 function closeHouse(){ houseOpen = false; document.getElementById('house-modal').classList.remove('show'); }
 function openCodex(){ codexOpen = true; renderCodex(); document.getElementById('codex-modal').classList.add('show'); }
 function closeCodex(){ codexOpen = false; document.getElementById('codex-modal').classList.remove('show'); }
-function closeModals(){ closeShop(); closeHouse(); closeCodex(); }
+function openTask(){ taskOpen = true; renderTask(); document.getElementById('task-modal').classList.add('show'); }
+function closeTask(){ taskOpen = false; document.getElementById('task-modal').classList.remove('show'); }
+function openSettings(){ settingsOpen = true; renderSettings(); document.getElementById('settings-modal').classList.add('show'); }
+function closeSettings(){ settingsOpen = false; document.getElementById('settings-modal').classList.remove('show'); }
+function closeModals(){ closeShop(); closeHouse(); closeCodex(); closeTask(); closeSettings(); }
 
 /* =========================================================
  * 周期性渲染：每 250ms 更新倒计时 / 检测成熟
@@ -1118,11 +1365,12 @@ function tick(){
     sp.plots.forEach(p=>{
       if(p.state === 'growing'){ growing = true; if(Date.now() >= p.endTime){ p.state = 'mature'; changed = true; } }
     });
-    if(sp.auto){
+    if(!game.superAuto && sp.auto){
       if(autoPlantSprite(sp)) changed = true;   // 实时补种空地
       notifyAllMature(sp);                       // 全满成熟则提醒收获
     }
   });
+  if(game.superAuto && superTick()) changed = true;   // 全自动：收获+抚摸+种植
   if(changed) renderCards();   // 有作物成熟或自动补种 → 重新渲染卡片
   else        updateCountdowns(); // 否则仅更新倒计时（保持成熟动画流畅）
   if(changed || growing) saveGame();   // 生长中持续保存剩余时间，刷新不丢进度
@@ -1153,6 +1401,13 @@ document.body.addEventListener('click', (e)=>{
     case 'openShop':    openShop(); break;
     case 'openHouse':   openHouse(); break;
     case 'openCodex':   openCodex(); break;
+    case 'openTask':    openTask(); break;
+    case 'openSettings':openSettings(); break;
+    case 'signin':      doSignin(); break;
+    case 'claimOrder':  claimOrder(+el.dataset.idx); break;
+    case 'claimAchv':   claimAchv(el.dataset.id); break;
+    case 'superOn':     superOn(); break;
+    case 'superOff':    superOff(); break;
     case 'toggleSound': toggleSound(); break;
     case 'restart':     restartGame(); break;
     case 'closeModal':  closeModals(); break;
@@ -1180,6 +1435,7 @@ function toast(msg){
  * 启动：先尝试读档（有则恢复，无则用初始状态），再渲染
  * =======================================================*/
 loadGame();
+ensureOrders();
 renderAll();
 // 关闭/切后台时再存一次（移动端尤其重要）
 window.addEventListener('pagehide', saveGame);
