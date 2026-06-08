@@ -35,7 +35,7 @@
   /* ============ 顶部栏 ============ */
   .topbar{
     position:sticky; top:0; z-index:50;
-    display:flex; align-items:center; gap:10px;
+    display:flex; align-items:center; gap:10px; flex-wrap:wrap; row-gap:8px;
     padding:12px 14px;
     background:linear-gradient(180deg,#fff3da,#ffe6b8);
     border-bottom:4px solid var(--brown);
@@ -71,6 +71,8 @@
   .btn-up2  { background:var(--green); box-shadow:0 4px 0 var(--green-d); }
   .btn-down { background:#e07a5f; box-shadow:0 4px 0 #c25b40; }
   .btn-replace{ background:#7c9ce0; box-shadow:0 4px 0 #5b79c0; font-size:12px; padding:7px 9px; }
+  .btn-restart{ background:#b98a5e; box-shadow:0 4px 0 #936a42; }
+  .btn-restart:active{ box-shadow:0 1px 0 #936a42; }
   .btn-auto{ width:100%; margin-top:8px; font-size:13px; background:#9aa6b2; box-shadow:0 4px 0 #74808c; }
   .btn-auto:active{ box-shadow:0 1px 0 #74808c; }
   .btn-auto.on{ background:var(--green); box-shadow:0 4px 0 var(--green-d); animation:autoPulse 1.4s ease-in-out infinite; }
@@ -259,6 +261,7 @@
   <div class="topbar">
     <div class="gold-box"><span class="coin">💰</span><span id="gold">0</span></div>
     <div class="spacer"></div>
+    <button class="btn btn-restart" data-action="restart" title="重新开始（清空存档）">🔄</button>
     <button class="btn" id="sound-btn" data-action="toggleSound" title="音效开关">🔊</button>
     <button class="btn" data-action="openShop">🛒 商城</button>
     <button class="btn" data-action="openHouse">🏠 精灵小屋</button>
@@ -329,6 +332,91 @@ const game = {
     wheat: { id:'wheat', level:1, seeds:5, unlocked:true, auto:false, plots:[ {state:'empty'} ] },
   },
 };
+
+/* =========================================================
+ * 本地存档：localStorage 自动存 / 读
+ *  - 刷新或重开页面：金币 / 等级 / 种子 / 地块 / 队伍 / 自动种植 全部保留
+ *  - 不做离线生长：生长中的地块只存「剩余时间」，回来后按剩余时间续算（关页期间不推进）
+ * =======================================================*/
+const SAVE_KEY = 'fairyFarmSave_v1';
+
+// 生成存档快照：生长中的地块只记剩余时间并标记冻结 → 避免离线生长
+function buildSave(){
+  const now = Date.now();
+  const sprites = {};
+  for(const id in game.sprites){
+    const sp = game.sprites[id];
+    sprites[id] = {
+      id: sp.id, level: sp.level, seeds: sp.seeds, unlocked: sp.unlocked, auto: !!sp.auto,
+      plots: sp.plots.map(p=>{
+        if(p.state === 'growing'){
+          const remaining = p.frozen ? (p.remaining || 0) : Math.max(0, p.endTime - now);
+          return { state:'growing', duration: p.duration, remaining, frozen: true };
+        }
+        return { state: p.state };
+      })
+    };
+  }
+  return { v:1, gold: game.gold, team: [...game.team], sprites };
+}
+
+function saveGame(){
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(buildSave())); } catch(e){}
+}
+
+function loadGame(){
+  let data;
+  try { data = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null'); } catch(e){ return false; }
+  if(!data || typeof data.gold !== 'number' || !Array.isArray(data.team) || !data.sprites) return false;
+  if(!data.team.every(id => data.sprites[id] && TYPES[id])) return false;   // 队伍 id 必须有效
+  game.gold = Math.max(0, data.gold | 0);
+  game.team = data.team.filter(id => TYPES[id]).slice(0, MAX_TEAM);
+  game.sprites = {};
+  for(const id in data.sprites){
+    if(!TYPES[id]) continue;
+    const s = data.sprites[id];
+    const sp = {
+      id, level: Math.min(MAX_LEVEL, Math.max(1, s.level | 0)) || 1,
+      seeds: Math.max(0, s.seeds | 0), unlocked: true, auto: !!s.auto,
+      plots: (Array.isArray(s.plots) ? s.plots : []).map(p=>{
+        if(p && p.state === 'growing') return { state:'growing', duration: p.duration || 0, remaining: Math.max(0, p.remaining | 0), frozen: true };
+        return { state: (p && p.state === 'mature') ? 'mature' : 'empty' };
+      })
+    };
+    // 容错：地块数与等级对齐（缺则补空地，多则只删空地、不毁作物）
+    while(sp.plots.length < sp.level) sp.plots.push({ state:'empty' });
+    for(let i = sp.plots.length - 1; i >= 0 && sp.plots.length > sp.level; i--){
+      if(sp.plots[i].state === 'empty') sp.plots.splice(i, 1);
+    }
+    game.sprites[id] = sp;
+  }
+  syncTimers();   // 在场生长中地块按 remaining 续算（不计离线时间）
+  return true;
+}
+
+function resetToDefault(){
+  game.gold = 320;
+  game.team = ['wheat'];
+  game.sprites = { wheat: { id:'wheat', level:1, seeds:5, unlocked:true, auto:false, plots:[ {state:'empty'} ] } };
+}
+
+// 重新开始：二次确认（再点一次）后清空存档、从头来
+let restartArmed = false, restartTimer = null;
+function restartGame(){
+  if(!restartArmed){
+    restartArmed = true;
+    toast('⚠️ 确定清空存档？再点一次「🔄」确认重新开始');
+    clearTimeout(restartTimer);
+    restartTimer = setTimeout(()=>{ restartArmed = false; }, 3500);
+    return;
+  }
+  restartArmed = false; clearTimeout(restartTimer);
+  try { localStorage.removeItem(SAVE_KEY); } catch(e){}
+  resetToDefault();
+  saveGame();
+  toast('🔄 已重新开始');
+  renderAll();
+}
 
 /* 创建一只新精灵（解锁时调用）：Lv.1 / 1 块空地 / 0 种子 */
 function createSprite(id){
@@ -699,6 +787,7 @@ function renderAll(){
   renderCards();
   if(shopOpen)  renderShop();
   if(houseOpen) renderHouse();
+  saveGame();   // 每次操作后自动存档
 }
 
 function plotHtml(sp, p, i){
@@ -883,11 +972,11 @@ function notifyAllMature(sp){
 }
 
 function tick(){
-  let changed = false;
+  let changed = false, growing = false;
   game.team.forEach(id=>{
     const sp = game.sprites[id];
     sp.plots.forEach(p=>{
-      if(p.state === 'growing' && Date.now() >= p.endTime){ p.state = 'mature'; changed = true; }
+      if(p.state === 'growing'){ growing = true; if(Date.now() >= p.endTime){ p.state = 'mature'; changed = true; } }
     });
     if(sp.auto){
       if(autoPlantSprite(sp)) changed = true;   // 实时补种空地
@@ -896,6 +985,7 @@ function tick(){
   });
   if(changed) renderCards();   // 有作物成熟或自动补种 → 重新渲染卡片
   else        updateCountdowns(); // 否则仅更新倒计时（保持成熟动画流畅）
+  if(changed || growing) saveGame();   // 生长中持续保存剩余时间，刷新不丢进度
 }
 setInterval(tick, 250);
 
@@ -923,6 +1013,7 @@ document.body.addEventListener('click', (e)=>{
     case 'openShop':    openShop(); break;
     case 'openHouse':   openHouse(); break;
     case 'toggleSound': toggleSound(); break;
+    case 'restart':     restartGame(); break;
     case 'closeModal':  closeShop(); closeHouse(); break;
     case 'unlock':      unlock(id); break;
     case 'addTeam':     addToTeam(id); break;
@@ -945,9 +1036,13 @@ function toast(msg){
 }
 
 /* =========================================================
- * 启动
+ * 启动：先尝试读档（有则恢复，无则用初始状态），再渲染
  * =======================================================*/
+loadGame();
 renderAll();
+// 关闭/切后台时再存一次（移动端尤其重要）
+window.addEventListener('pagehide', saveGame);
+document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState === 'hidden') saveGame(); });
 </script>
 </body>
 </html>
