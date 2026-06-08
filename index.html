@@ -187,6 +187,9 @@
   .house-actions{ flex:none; display:flex; flex-direction:column; gap:6px; align-items:flex-end; }
   .in-team{ font-size:12px; font-weight:800; color:var(--green-d); }
   .replace-row{ display:flex; flex-direction:column; gap:5px; }
+  .shop-item.locked{ opacity:.6; }
+  .shop-item.locked .shop-name{ color:#a99883; letter-spacing:2px; }
+  .shop-avatar.mystery{ font-size:26px; color:#b0a48f; background:#ece3d2; filter:grayscale(.4); }
 
   /* ============ SVG 美术 / 图层 / 特效 ============ */
   .avatar{ overflow:hidden; }
@@ -263,6 +266,7 @@
     <div class="spacer"></div>
     <button class="btn btn-restart" data-action="restart" title="重新开始（清空存档）">🔄</button>
     <button class="btn" id="sound-btn" data-action="toggleSound" title="音效开关">🔊</button>
+    <button class="btn" data-action="openCodex" title="精灵图鉴">📖 图鉴</button>
     <button class="btn" data-action="openShop">🛒 商城</button>
     <button class="btn" data-action="openHouse">🏠 精灵小屋</button>
   </div>
@@ -294,9 +298,19 @@
         <button class="x" data-action="closeModal">✕</button>
       </div>
       <div id="house-list"></div>
-      <p style="font-size:12px;color:#8a6a3a;font-weight:700;text-align:center;margin-top:6px;">
-        最多同时上阵 3 只精灵 · 换下的精灵作物会被冻结保留
-      </p>
+      <p id="house-foot" style="font-size:12px;color:#8a6a3a;font-weight:700;text-align:center;margin-top:6px;"></p>
+    </div>
+  </div>
+
+  <!-- 精灵图鉴模态框 -->
+  <div class="modal" id="codex-modal">
+    <div class="modal-box">
+      <div class="modal-head">
+        <h2>📖 精灵图鉴</h2>
+        <button class="x" data-action="closeModal">✕</button>
+      </div>
+      <div id="codex-list"></div>
+      <p id="codex-foot" style="font-size:12px;color:#8a6a3a;font-weight:700;text-align:center;margin-top:6px;"></p>
     </div>
   </div>
 
@@ -312,25 +326,30 @@
  * 数据定义
  * =======================================================*/
 const TYPES = {
-  wheat:   { name:'小麦精灵', icon:'🐥', crop:'小麦', cropIcon:'🌾', seed:'小麦种子', growSec:6,  unlock:150, sell:18 },
-  corn:    { name:'玉米精灵', icon:'🐰', crop:'玉米', cropIcon:'🌽', seed:'玉米种子', growSec:12, unlock:280, sell:32 },
-  tomato:  { name:'番茄精灵', icon:'🦊', crop:'番茄', cropIcon:'🍅', seed:'番茄种子', growSec:20, unlock:500, sell:58 },
-  pumpkin: { name:'南瓜精灵', icon:'🐲', crop:'南瓜', cropIcon:'🎃', seed:'南瓜种子', growSec:35, unlock:880, sell:98 },
+  wheat:      { name:'小麦精灵', icon:'🐥', crop:'小麦', cropIcon:'🌾', seed:'小麦种子', growSec:6,   unlock:150,  sell:18  },
+  corn:       { name:'玉米精灵', icon:'🐰', crop:'玉米', cropIcon:'🌽', seed:'玉米种子', growSec:12,  unlock:280,  sell:32  },
+  tomato:     { name:'番茄精灵', icon:'🦊', crop:'番茄', cropIcon:'🍅', seed:'番茄种子', growSec:20,  unlock:500,  sell:58  },
+  pumpkin:    { name:'南瓜精灵', icon:'🐲', crop:'南瓜', cropIcon:'🎃', seed:'南瓜种子', growSec:35,  unlock:880,  sell:98  },
+  strawberry: { name:'草莓精灵', icon:'🍓', crop:'草莓', cropIcon:'🍓', seed:'草莓种子', growSec:50,  unlock:1400, sell:150 },
+  grape:      { name:'葡萄精灵', icon:'🍇', crop:'葡萄', cropIcon:'🍇', seed:'葡萄种子', growSec:70,  unlock:2400, sell:220 },
+  watermelon: { name:'西瓜精灵', icon:'🍉', crop:'西瓜', cropIcon:'🍉', seed:'西瓜种子', growSec:95,  unlock:3600, sell:320 },
+  blueberry:  { name:'蓝莓精灵', icon:'🫐', crop:'蓝莓', cropIcon:'🫐', seed:'蓝莓种子', growSec:130, unlock:5200, sell:480 },
 };
-const ORDER = ['wheat','corn','tomato','pumpkin'];
+const ORDER = ['wheat','corn','tomato','pumpkin','strawberry','grape','watermelon','blueberry'];
 const UPGRADE_COSTS = [100, 250, 500, 800, 1200]; // Lv1→2, 2→3, 3→4, 4→5, 5→6
 const MAX_LEVEL = 6;
-const MAX_TEAM  = 3;
+const TEAM_BASE = 3;   // 上阵位基数：每解锁满 3 只精灵，上阵上限 +3（3→6→9…）
 
 /* =========================================================
- * 游戏状态（纯 JS 对象，不使用 localStorage）
+ * 游戏状态（运行时为 JS 对象，并自动存入 localStorage）
  * =======================================================*/
 const game = {
   gold: 320,
-  team: ['wheat'],            // 当前上阵精灵 id（最多 3 个）
+  team: ['wheat'],            // 当前上阵精灵 id（上限随解锁数提升）
   sprites: {
     wheat: { id:'wheat', level:1, seeds:5, unlocked:true, auto:false, plots:[ {state:'empty'} ] },
   },
+  stats: { harvest: {} },     // 累计收获数（按精灵 id 计），供图鉴/成就用
 };
 
 /* =========================================================
@@ -357,7 +376,8 @@ function buildSave(){
       })
     };
   }
-  return { v:1, gold: game.gold, team: [...game.team], sprites };
+  const stats = { harvest: (game.stats && game.stats.harvest) || {} };
+  return { v:1, gold: game.gold, team: [...game.team], sprites, stats };
 }
 
 function saveGame(){
@@ -370,7 +390,7 @@ function loadGame(){
   if(!data || typeof data.gold !== 'number' || !Array.isArray(data.team) || !data.sprites) return false;
   if(!data.team.every(id => data.sprites[id] && TYPES[id])) return false;   // 队伍 id 必须有效
   game.gold = Math.max(0, data.gold | 0);
-  game.team = data.team.filter(id => TYPES[id]).slice(0, MAX_TEAM);
+  game.stats = { harvest: (data.stats && data.stats.harvest && typeof data.stats.harvest === 'object') ? data.stats.harvest : {} };
   game.sprites = {};
   for(const id in data.sprites){
     if(!TYPES[id]) continue;
@@ -390,6 +410,8 @@ function loadGame(){
     }
     game.sprites[id] = sp;
   }
+  // 队伍在 sprites 就绪后再设，并按当前上阵上限裁剪
+  game.team = data.team.filter(id => game.sprites[id]).slice(0, teamCap());
   syncTimers();   // 在场生长中地块按 remaining 续算（不计离线时间）
   return true;
 }
@@ -398,6 +420,7 @@ function resetToDefault(){
   game.gold = 320;
   game.team = ['wheat'];
   game.sprites = { wheat: { id:'wheat', level:1, seeds:5, unlocked:true, auto:false, plots:[ {state:'empty'} ] } };
+  game.stats = { harvest: {} };
 }
 
 // 重新开始：二次确认（再点一次）后清空存档、从头来
@@ -444,10 +467,14 @@ function plotCols(n){ return n <= 4 ? 2 : (n <= 6 ? 3 : 4); }
  *    改成 <img src="..."> 即可（多帧动画见 spriteSVG 的 pose 参数）。
  * =======================================================*/
 const ART = {
-  wheat:   { body:'#ead27e', body2:'#c9a341', dark:'#6e571c', cheek:'#ffb7a6' },
-  corn:    { body:'#ffd94a', body2:'#efb100', dark:'#7a5a10', cheek:'#ffb7a6' },
-  tomato:  { body:'#ff8270', body2:'#df3a29', dark:'#7a1e14', cheek:'#ffd2c6' },
-  pumpkin: { body:'#ffac4d', body2:'#e87a12', dark:'#7a3c0c', cheek:'#ffd2a6' },
+  wheat:      { body:'#ead27e', body2:'#c9a341', dark:'#6e571c', cheek:'#ffb7a6' },
+  corn:       { body:'#ffd94a', body2:'#efb100', dark:'#7a5a10', cheek:'#ffb7a6' },
+  tomato:     { body:'#ff8270', body2:'#df3a29', dark:'#7a1e14', cheek:'#ffd2c6' },
+  pumpkin:    { body:'#ffac4d', body2:'#e87a12', dark:'#7a3c0c', cheek:'#ffd2a6' },
+  strawberry: { body:'#ff7a8a', body2:'#e23b54', dark:'#7a1424', cheek:'#ffd2dc' },
+  grape:      { body:'#b98ad8', body2:'#8e54b8', dark:'#4a2766', cheek:'#e8c6f0' },
+  watermelon: { body:'#7fd17a', body2:'#3fa84a', dark:'#1e5a26', cheek:'#ffd2c6' },
+  blueberry:  { body:'#7aa6e8', body2:'#3a6bd6', dark:'#1e3a7a', cheek:'#cdd9f5' },
 };
 
 // 精灵头像（pose: 'idle' | 'happy' —— 抚摸时切到 happy，即「多帧」效果）
@@ -481,10 +508,17 @@ function spriteSVG(id, pose){
 
 // 精灵腹前小作物徽记（用于区分种类）
 function heldCrop(id){
-  if(id === 'wheat')  return `<g stroke="#caa23a" stroke-width="2" stroke-linecap="round"><line x1="32" y1="52" x2="32" y2="45"/><line x1="32" y1="47" x2="28.5" y2="44"/><line x1="32" y1="47" x2="35.5" y2="44"/><line x1="32" y1="50" x2="28.5" y2="47"/><line x1="32" y1="50" x2="35.5" y2="47"/></g>`;
-  if(id === 'corn')   return `<g><ellipse cx="32" cy="48" rx="3.6" ry="5.4" fill="#ffd23b" stroke="#d9a200" stroke-width="1"/><path d="M28.4 47 q-3.5 0 -3.5 4.6 q3.5 0 3.5 -4.6Z" fill="#6fbf3a"/></g>`;
-  if(id === 'tomato') return `<g><circle cx="32" cy="49" r="4.6" fill="#e8412c"/><path d="M30 45 l2 2 2 -2" stroke="#4f9a2c" stroke-width="1.8" fill="none"/></g>`;
-  return `<g><ellipse cx="32" cy="49" rx="5.4" ry="4.6" fill="#ef8716"/><line x1="32" y1="44.5" x2="32" y2="53.5" stroke="#c96a0c" stroke-width="1"/><line x1="28.5" y1="45.5" x2="28.5" y2="52.5" stroke="#c96a0c" stroke-width="1"/><line x1="35.5" y1="45.5" x2="35.5" y2="52.5" stroke="#c96a0c" stroke-width="1"/><rect x="31" y="42.5" width="2" height="3" rx="0.6" fill="#4f9a2c"/></g>`;
+  switch(id){
+    case 'wheat':  return `<g stroke="#caa23a" stroke-width="2" stroke-linecap="round"><line x1="32" y1="52" x2="32" y2="45"/><line x1="32" y1="47" x2="28.5" y2="44"/><line x1="32" y1="47" x2="35.5" y2="44"/><line x1="32" y1="50" x2="28.5" y2="47"/><line x1="32" y1="50" x2="35.5" y2="47"/></g>`;
+    case 'corn':   return `<g><ellipse cx="32" cy="48" rx="3.6" ry="5.4" fill="#ffd23b" stroke="#d9a200" stroke-width="1"/><path d="M28.4 47 q-3.5 0 -3.5 4.6 q3.5 0 3.5 -4.6Z" fill="#6fbf3a"/></g>`;
+    case 'tomato': return `<g><circle cx="32" cy="49" r="4.6" fill="#e8412c"/><path d="M30 45 l2 2 2 -2" stroke="#4f9a2c" stroke-width="1.8" fill="none"/></g>`;
+    case 'pumpkin':return `<g><ellipse cx="32" cy="49" rx="5.4" ry="4.6" fill="#ef8716"/><line x1="32" y1="44.5" x2="32" y2="53.5" stroke="#c96a0c" stroke-width="1"/><line x1="28.5" y1="45.5" x2="28.5" y2="52.5" stroke="#c96a0c" stroke-width="1"/><line x1="35.5" y1="45.5" x2="35.5" y2="52.5" stroke="#c96a0c" stroke-width="1"/><rect x="31" y="42.5" width="2" height="3" rx="0.6" fill="#4f9a2c"/></g>`;
+    case 'strawberry': return `<g><path d="M32 45 C29 45 29 50 32 53 C35 50 35 45 32 45Z" fill="#e8324f"/><path d="M30 45 l2 1.6 2 -1.6" stroke="#4f9a2c" stroke-width="1.4" fill="none"/></g>`;
+    case 'grape':  return `<g fill="#9456c8"><circle cx="30" cy="47" r="2"/><circle cx="34" cy="47" r="2"/><circle cx="28" cy="50" r="1.8"/><circle cx="32" cy="50" r="1.8"/><circle cx="36" cy="50" r="1.8"/><circle cx="32" cy="53" r="1.8"/></g>`;
+    case 'watermelon': return `<g><ellipse cx="32" cy="49" rx="6" ry="5" fill="#4aa83f" stroke="#2e7a2a" stroke-width="0.8"/><path d="M29 45 q1 4 0 8" stroke="#2e7a2a" stroke-width="1" fill="none"/><path d="M32 44.5 q1 4.5 0 9" stroke="#2e7a2a" stroke-width="1" fill="none"/><path d="M35 45 q-1 4 0 8" stroke="#2e7a2a" stroke-width="1" fill="none"/></g>`;
+    case 'blueberry': return `<g fill="#4a78e0"><circle cx="30" cy="48" r="2.4"/><circle cx="35" cy="48" r="2.4"/><circle cx="32.5" cy="51.5" r="2.4"/></g>`;
+  }
+  return '';
 }
 
 // 作物（stage: 'sprout' | 'growing' | 'mature'）
@@ -518,6 +552,36 @@ function cropSVG(id, stage){
     <circle cx="25" cy="45" r="8" fill="#e8412c"/><circle cx="22" cy="42" r="2" fill="#fff" opacity=".4"/>
     <circle cx="40" cy="47" r="9" fill="#d6351f"/><circle cx="37" cy="43" r="2.2" fill="#fff" opacity=".4"/>
     <path d="M38 39 l2 2 2 -2" stroke="#4f9a2c" stroke-width="1.8" fill="none"/></svg>`;
+  if(id === 'strawberry') return `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+    <path d="M32 28 q-12 -3 -16 -12 q12 0 16 12Z" fill="#5fb036"/>
+    <path d="M32 26 q12 -3 16 -12 q-12 0 -16 12Z" fill="#7ec64b"/>
+    <path d="M24 36 C18 36 18 45 24 52 C30 45 30 36 24 36Z" fill="#e8324f"/>
+    <path d="M21 37 l3 2 3 -2" stroke="#4f9a2c" stroke-width="1.6" fill="none"/>
+    <g fill="#ffe08a"><circle cx="23" cy="42" r="0.8"/><circle cx="26" cy="44" r="0.8"/><circle cx="22" cy="46" r="0.8"/><circle cx="25" cy="48" r="0.8"/></g>
+    <path d="M40 40 C34 40 34 49 40 56 C46 49 46 40 40 40Z" fill="#d62a44"/>
+    <path d="M37 41 l3 2 3 -2" stroke="#4f9a2c" stroke-width="1.6" fill="none"/>
+    <g fill="#ffe08a"><circle cx="39" cy="46" r="0.8"/><circle cx="42" cy="48" r="0.8"/><circle cx="38" cy="50" r="0.8"/></g></svg>`;
+  if(id === 'grape') return `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+    <path d="M34 18 q-2 -6 4 -8" stroke="#7a5a1c" stroke-width="2" fill="none" stroke-linecap="round"/>
+    <path d="M38 12 q9 -4 11 4 q-9 3 -11 -4Z" fill="#6fbf3a"/>
+    <g fill="#9456c8" stroke="#6e3aa0" stroke-width="0.6">
+      <circle cx="26" cy="26" r="4"/><circle cx="34" cy="26" r="4"/><circle cx="42" cy="26" r="4"/>
+      <circle cx="22" cy="33" r="3.4"/><circle cx="30" cy="33" r="4"/><circle cx="38" cy="33" r="4"/><circle cx="46" cy="33" r="3.4"/>
+      <circle cx="26" cy="40" r="4"/><circle cx="34" cy="40" r="4"/><circle cx="42" cy="40" r="4"/>
+      <circle cx="30" cy="47" r="4"/><circle cx="38" cy="47" r="4"/><circle cx="34" cy="53" r="4"/></g>
+    <g fill="#c4a0e8" opacity=".7"><circle cx="24.5" cy="24.5" r="1.2"/><circle cx="28.5" cy="31.5" r="1.2"/><circle cx="32.5" cy="38.5" r="1.2"/></g></svg>`;
+  if(id === 'watermelon') return `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+    <path d="M30 22 q2 -5 5 -1" stroke="#3a6a1c" stroke-width="2" fill="none" stroke-linecap="round"/>
+    <ellipse cx="32" cy="40" rx="20" ry="17" fill="#4aa83f" stroke="#2e7a2a" stroke-width="1.6"/>
+    <g stroke="#2e7a2a" stroke-width="2.4" fill="none" opacity=".75"><path d="M20 29 q3 11 0 22"/><path d="M32 25 q3 15 0 30"/><path d="M44 29 q-3 11 0 22"/></g>
+    <ellipse cx="25" cy="33" rx="4.5" ry="7" fill="#ffffff" opacity=".18"/></svg>`;
+  if(id === 'blueberry') return `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+    <path d="M32 30 q-9 -3 -11 -12 q10 0 11 12Z" fill="#5fb036"/>
+    <path d="M32 30 q9 -3 11 -12 q-10 0 -11 12Z" fill="#7ec64b"/>
+    <g fill="#4a78e0" stroke="#2a4ea0" stroke-width="0.8">
+      <circle cx="25" cy="36" r="6"/><circle cx="39" cy="36" r="6"/><circle cx="32" cy="46" r="6.5"/><circle cx="21" cy="46" r="5"/><circle cx="43" cy="46" r="5"/></g>
+    <g fill="#22357a"><circle cx="25" cy="35" r="1.1"/><circle cx="39" cy="35" r="1.1"/><circle cx="32" cy="45" r="1.2"/></g>
+    <g fill="#aac4f5" opacity=".7"><circle cx="23" cy="34" r="1.3"/><circle cx="37" cy="34" r="1.3"/><circle cx="30" cy="44" r="1.4"/></g></svg>`;
   return `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
     <rect x="30" y="20" width="4" height="9" rx="1.5" fill="#5a8a2c"/>
     <ellipse cx="32" cy="43" rx="21" ry="16" fill="#ef8716" stroke="#c96a0c" stroke-width="1.6"/>
@@ -662,6 +726,7 @@ function harvestPlot(sp, i){
   const g = harvestGold(sp);
   game.gold += g;
   p.state = 'empty';
+  game.stats.harvest[sp.id] = (game.stats.harvest[sp.id] || 0) + 1;
   toast('🧺 收获' + TYPES[sp.id].crop + ' +' + g + '💰');
   renderAll();
   sfx('harvest');
@@ -678,6 +743,7 @@ function harvestAll(sp){
   if(count === 0){ sfx('error'); toast('暂时没有可收获的作物哦'); return; }
   const c = centerOf('[data-action="harvestAll"][data-sprite="' + sp.id + '"]') || centerOf('[data-avatar="' + sp.id + '"]');
   game.gold += gold;
+  game.stats.harvest[sp.id] = (game.stats.harvest[sp.id] || 0) + count;
   toast('🧺 一键收获 ' + count + ' 个' + TYPES[sp.id].crop + '，+' + gold + '💰');
   renderAll();
   sfx('harvestBig');
@@ -719,7 +785,10 @@ function upgrade(sp){
  * =======================================================*/
 function unlock(id){
   const t = TYPES[id];
+  if(!t) return;
   if(game.sprites[id] && game.sprites[id].unlocked) return;
+  // 强制按顺序解锁：只能解锁“下一个”
+  if(ORDER[unlockedCount()] !== id){ sfx('error'); toast('请先解锁前面的精灵'); return; }
   if(game.gold < t.unlock){ sfx('error'); toast('金币不足，解锁需要 ' + t.unlock + '💰'); return; }
   game.gold -= t.unlock;
   game.sprites[id] = createSprite(id);
@@ -734,6 +803,11 @@ function unlock(id){
  *  - 被换下的精灵作物冻结保留；上场的精灵解冻续算（syncTimers）
  * =======================================================*/
 function spriteOnField(id){ return game.team.includes(id); }
+
+// 已解锁精灵数
+function unlockedCount(){ return ORDER.filter(id => game.sprites[id] && game.sprites[id].unlocked).length; }
+// 当前上阵上限：基数 3，每解锁满 3 只 +3（3 / 6 / 9 …）
+function teamCap(){ return Math.max(TEAM_BASE, Math.floor(unlockedCount() / 3) * 3); }
 
 // 计时器同步：在场精灵解冻续算，替补席精灵冻结保留（幂等，可重复调用）
 function syncTimers(){
@@ -755,7 +829,11 @@ function syncTimers(){
 
 function addToTeam(id){
   if(spriteOnField(id)) return;
-  if(game.team.length >= MAX_TEAM){ toast('队伍已满（最多 3 只）'); return; }
+  if(game.team.length >= teamCap()){
+    sfx('error');
+    toast('上阵位已满，请先解锁 ' + (teamCap() + 3) + ' 个精灵以扩充上阵位');
+    return;
+  }
   game.team.push(id);
   syncTimers();
   toast('✅ ' + TYPES[id].name + ' 上阵啦！');
@@ -787,6 +865,7 @@ function renderAll(){
   renderCards();
   if(shopOpen)  renderShop();
   if(houseOpen) renderHouse();
+  if(codexOpen) renderCodex();
   saveGame();   // 每次操作后自动存档
 }
 
@@ -860,23 +939,38 @@ function renderCards(){
 }
 
 function renderShop(){
-  document.getElementById('shop-list').innerHTML = ORDER.map(id=>{
+  const ownedN = unlockedCount();   // 顺序解锁 → 已拥有的就是前 ownedN 个
+  document.getElementById('shop-list').innerHTML = ORDER.map((id, idx)=>{
     const t = TYPES[id];
-    const owned = game.sprites[id] && game.sprites[id].unlocked;
-    let btn;
-    if(owned){
-      btn = '<button class="btn" disabled>已拥有</button>';
-    }else{
-      const can = game.gold >= t.unlock;
-      btn = `<button class="btn btn-buy" data-action="unlock" data-sprite="${id}" ${can ? '' : 'disabled'}>解锁 ${t.unlock}💰</button>`;
+    if(idx < ownedN){                 // 已拥有
+      return `<div class="shop-item">
+          <div class="shop-avatar">${spriteSVG(id, 'idle')}</div>
+          <div class="shop-detail">
+            <div class="shop-name">${t.name} <span class="owned-tag">已拥有</span></div>
+            <div class="shop-sub">专属：${t.cropIcon}${t.crop} · 售${t.sell}💰 · 生长${t.growSec}s</div>
+          </div>
+          <button class="btn" disabled>已拥有</button>
+        </div>`;
     }
-    return `<div class="shop-item">
-        <div class="shop-avatar">${spriteSVG(id, 'idle')}</div>
+    if(idx === ownedN){               // 下一个待解锁：完整显示 + 可买
+      const can = game.gold >= t.unlock;
+      return `<div class="shop-item">
+          <div class="shop-avatar">${spriteSVG(id, 'idle')}</div>
+          <div class="shop-detail">
+            <div class="shop-name">${t.name}</div>
+            <div class="shop-sub">专属：${t.cropIcon}${t.crop} · 售${t.sell}💰 · 生长${t.growSec}s</div>
+          </div>
+          <button class="btn btn-buy" data-action="unlock" data-sprite="${id}" ${can ? '' : 'disabled'}>解锁 ${t.unlock}💰</button>
+        </div>`;
+    }
+    // 更靠后：置灰神秘
+    return `<div class="shop-item locked">
+        <div class="shop-avatar mystery">❓</div>
         <div class="shop-detail">
-          <div class="shop-name">${t.name} ${owned ? '<span class="owned-tag">已拥有</span>' : ''}</div>
-          <div class="shop-sub">专属：${t.cropIcon}${t.crop} · 售${t.sell}💰 · 生长${t.growSec}s</div>
+          <div class="shop-name">？？？</div>
+          <div class="shop-sub">🔒 解锁前一个精灵后揭晓</div>
         </div>
-        ${btn}
+        <button class="btn" disabled>🔒</button>
       </div>`;
   }).join('');
 }
@@ -891,7 +985,7 @@ function renderHouse(){
     if(onTeam){
       actions = `<span class="in-team">✅ 在队伍中</span>
         <button class="btn btn-down" data-action="removeTeam" data-sprite="${id}">换下</button>`;
-    }else if(game.team.length < MAX_TEAM){
+    }else if(game.team.length < teamCap()){
       actions = `<button class="btn btn-up2" data-action="addTeam" data-sprite="${id}">换上场</button>`;
     }else{
       actions = '<div class="replace-row">' + game.team.map((tid, idx)=>
@@ -907,16 +1001,62 @@ function renderHouse(){
         <div class="house-actions">${actions}</div>
       </div>`;
   }).join('');
+  const cap = teamCap(), nextAt = (cap + 3);
+  document.getElementById('house-foot').innerHTML =
+    '当前可上阵 <b>' + cap + '</b> 只（已上阵 ' + game.team.length + '）· 再' +
+    '解锁满 ' + nextAt + ' 只精灵可扩到 ' + nextAt + ' 个上阵位 · 换下的作物冻结保留';
+}
+
+// 📖 图鉴：已拥有完整显示，下一个可见，其余置灰神秘
+function renderCodex(){
+  const ownedN = unlockedCount();
+  document.getElementById('codex-foot').innerHTML =
+    '已解锁 <b>' + ownedN + '</b> / ' + ORDER.length + ' 只 · 按顺序解锁，神秘精灵敬请期待～';
+  document.getElementById('codex-list').innerHTML = ORDER.map((id, idx)=>{
+    const t = TYPES[id];
+    if(idx < ownedN){
+      const sp = game.sprites[id];
+      const harvested = (game.stats && game.stats.harvest && game.stats.harvest[id]) || 0;
+      return `<div class="shop-item">
+          <div class="shop-avatar">${spriteSVG(id, 'idle')}</div>
+          <div class="shop-detail">
+            <div class="shop-name">${t.name} <span class="lv-badge">Lv.${sp.level}</span></div>
+            <div class="shop-sub">${t.cropIcon}${t.crop} · 售${t.sell}💰 · 生长${t.growSec}s</div>
+            <div class="shop-sub">🧺 累计收获 ${harvested} 个</div>
+          </div>
+        </div>`;
+    }
+    if(idx === ownedN){
+      return `<div class="shop-item">
+          <div class="shop-avatar">${spriteSVG(id, 'idle')}</div>
+          <div class="shop-detail">
+            <div class="shop-name">${t.name} <span class="slot-tag">下一个</span></div>
+            <div class="shop-sub">${t.cropIcon}${t.crop} · 售${t.sell}💰 · 生长${t.growSec}s</div>
+            <div class="shop-sub">🛒 商城解锁价 ${t.unlock}💰</div>
+          </div>
+        </div>`;
+    }
+    return `<div class="shop-item locked">
+        <div class="shop-avatar mystery">❓</div>
+        <div class="shop-detail">
+          <div class="shop-name">？？？</div>
+          <div class="shop-sub">🔒 神秘精灵</div>
+        </div>
+      </div>`;
+  }).join('');
 }
 
 /* =========================================================
  * 模态框开关
  * =======================================================*/
-let shopOpen = false, houseOpen = false;
+let shopOpen = false, houseOpen = false, codexOpen = false;
 function openShop(){ shopOpen = true; renderShop(); document.getElementById('shop-modal').classList.add('show'); }
 function closeShop(){ shopOpen = false; document.getElementById('shop-modal').classList.remove('show'); }
 function openHouse(){ houseOpen = true; renderHouse(); document.getElementById('house-modal').classList.add('show'); }
 function closeHouse(){ houseOpen = false; document.getElementById('house-modal').classList.remove('show'); }
+function openCodex(){ codexOpen = true; renderCodex(); document.getElementById('codex-modal').classList.add('show'); }
+function closeCodex(){ codexOpen = false; document.getElementById('codex-modal').classList.remove('show'); }
+function closeModals(){ closeShop(); closeHouse(); closeCodex(); }
 
 /* =========================================================
  * 周期性渲染：每 250ms 更新倒计时 / 检测成熟
@@ -995,7 +1135,7 @@ setInterval(tick, 250);
 document.body.addEventListener('click', (e)=>{
   unlockAudio();   // 首次用户交互时启动音频（满足浏览器自动播放限制）
   // 点击模态框遮罩空白处关闭
-  if(e.target.classList.contains('modal')){ closeShop(); closeHouse(); return; }
+  if(e.target.classList.contains('modal')){ closeModals(); return; }
 
   const el = e.target.closest('[data-action]');
   if(!el) return;
@@ -1012,9 +1152,10 @@ document.body.addEventListener('click', (e)=>{
     case 'upgrade':     upgrade(sp); break;
     case 'openShop':    openShop(); break;
     case 'openHouse':   openHouse(); break;
+    case 'openCodex':   openCodex(); break;
     case 'toggleSound': toggleSound(); break;
     case 'restart':     restartGame(); break;
-    case 'closeModal':  closeShop(); closeHouse(); break;
+    case 'closeModal':  closeModals(); break;
     case 'unlock':      unlock(id); break;
     case 'addTeam':     addToTeam(id); break;
     case 'removeTeam':  removeFromTeam(id); break;
