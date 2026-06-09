@@ -1051,7 +1051,8 @@ function renderAchv(){
 /* =========================================================
  * 设置 / 全自动超级管理（CDK 解锁；仅含 自动抚摸+自动收获+自动种植）
  * =======================================================*/
-const SUPER_CDK = 'deng1201';
+// 拼接生成密钥，源码中不出现连续明文（仅轻度隐藏，非真正加密）
+const SUPER_CDK = ['d','e','n','g'].join('') + String.fromCharCode(49, 50, 48, 49);
 function superOn(){
   const inp = document.getElementById('cdk-input');
   const v = inp ? (inp.value || '').trim() : '';
